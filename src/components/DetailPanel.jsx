@@ -1,10 +1,10 @@
 import React from 'react';
 
 const KIND_LABEL = {
-  source: 'Nguồn dữ liệu', service: 'Service', kafka: 'Kafka topic',
-  redis: 'Redis storage', mongo: 'MongoDB storage', api: 'REST/RPC API',
-  ws: 'WebSocket Gateway', client: 'Client', schedule: 'Cron job',
-  config: 'Config / Flag', logic: 'Business logic',
+  source: 'Data source', service: 'Service', kafka: 'Kafka topic',
+  redis: 'Redis storage', mongo: 'MongoDB storage', mysql: 'MySQL storage',
+  api: 'REST/RPC API', ws: 'WebSocket Gateway', client: 'Client',
+  schedule: 'Cron job', config: 'Config / Flag', logic: 'Business logic',
 };
 
 function IOSection({ label, items, fallbackText }) {
@@ -40,15 +40,15 @@ export default function DetailPanel({ node, accent, onClose }) {
       <aside className="tx-panel tx-panel--empty">
         <div className="tx-panel__hint">
           <div className="tx-panel__hint-icon">🖱️</div>
-          <div className="tx-panel__hint-title">Click vào 1 node bất kỳ</div>
+          <div className="tx-panel__hint-title">Click any node</div>
           <div className="tx-panel__hint-sub">
-            để xem chi tiết Input / Output / Logic của từng layer.
+            to see its Input / Output / Logic details.
           </div>
           <ul className="tx-panel__tips">
-            <li>🔍 Cuộn để zoom in/out</li>
-            <li>🤚 Kéo nền để pan</li>
-            <li>🔄 Kéo node để sắp xếp lại</li>
-            <li>🎛️ Dùng Controls để fit/center</li>
+            <li>🔍 Scroll to zoom in/out</li>
+            <li>🤚 Drag the background to pan</li>
+            <li>🔄 Drag a node to rearrange</li>
+            <li>🎛️ Use Controls to fit/center</li>
           </ul>
         </div>
       </aside>
@@ -65,12 +65,12 @@ export default function DetailPanel({ node, accent, onClose }) {
         {node.subtitle && <div className="tx-panel__subtitle">{node.subtitle}</div>}
         {node.layer && <div className="tx-panel__layer">📍 Layer: <b>{node.layer}</b></div>}
 
-        <IOSection label="🔽 INPUT" items={node.inputs} fallbackText="(không có input)" />
-        <IOSection label="🔼 OUTPUT" items={node.outputs} fallbackText="(không có output)" />
+        <IOSection label="🔽 INPUT" items={node.inputs} fallbackText="(no input)" />
+        <IOSection label="🔼 OUTPUT" items={node.outputs} fallbackText="(no output)" />
 
         {node.details && (
           <div className="tx-panel__details">
-            <div className="tx-panel__details-label">📝 Chi tiết logic</div>
+            <div className="tx-panel__details-label">📝 Logic details</div>
             <pre className="tx-panel__details-body">{node.details}</pre>
           </div>
         )}

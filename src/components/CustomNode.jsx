@@ -2,11 +2,12 @@ import React, { memo } from 'react';
 import { Handle, Position } from '@xyflow/react';
 
 const KIND_META = {
-  source:   { icon: '📡', label: 'NGUỒN',     color: '#38bdf8' },
+  source:   { icon: '📡', label: 'SOURCE',    color: '#38bdf8' },
   service:  { icon: '⚙️', label: 'SERVICE',    color: '#a78bfa' },
   kafka:    { icon: '📨', label: 'KAFKA',      color: '#f59e0b' },
   redis:    { icon: '🟥', label: 'REDIS',      color: '#ef4444' },
   mongo:    { icon: '🟢', label: 'MONGODB',    color: '#22c55e' },
+  mysql:    { icon: '🐬', label: 'MYSQL',      color: '#4f46e5' },
   api:      { icon: '🔌', label: 'API',        color: '#0ea5e9' },
   ws:       { icon: '📺', label: 'WS GATEWAY', color: '#f97316' },
   client:   { icon: '📱', label: 'CLIENT',     color: '#ec4899' },

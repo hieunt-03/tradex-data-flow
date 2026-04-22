@@ -1,46 +1,46 @@
 // ============================================================================
 // TradeX Market Data — OBJECT LIFECYCLE DIAGRAMS
 // ============================================================================
-// Mỗi lifecycle mô tả vòng đời của 1 object: nguồn sinh · transform ·
+// Each lifecycle describes the lifecycle of 1 object: source · transform ·
 // Redis/Mongo · delivery · reset/persist.
 //
-// QUY ƯỚC details:
-//   • Giải thích hàm LÀM GÌ (không mô tả lại tên hàm)
-//   • Liệt kê input → bước xử lý chính → output
-//   • Flag behavior quan trọng (skip / branch / feature flag)
+// details CONVENTION:
+//   • Explain WHAT the function does (don't just repeat the function name)
+//   • List input → main processing steps → output
+//   • Important flag behavior (skip / branch / feature flag)
 //
-// category = 'lifecycle' để App chọn đúng parent tab.
+// category = 'lifecycle' so the App picks the correct parent tab.
 // ============================================================================
 
 const COL = 480;
 const ROW = 320;
 
 // ─────────────────────────────────────────────────────────────────────────
-// 0. OBJECT RELATIONSHIP OVERVIEW — Bản đồ quan hệ 17 object
+// 0. OBJECT RELATIONSHIP OVERVIEW — Map of 17 object relationships
 // ─────────────────────────────────────────────────────────────────────────
-// Mục tiêu: ở 1 màn duy nhất nhìn thấy MỌI object + mũi tên phụ thuộc
-// (cái gì mutate cái gì, cái gì derive từ cái gì).
+// Goal: view EVERY object + dependency arrows on a single screen
+// (what mutates what, what is derived from what).
 //
-// Phân 3 lane dọc:
-//   1. EVENT SOURCES  (x ≈ 0)      — object đến từ feed Lotte
+// Split into 3 vertical lanes:
+//   1. EVENT SOURCES  (x ≈ 0)      — objects coming from the Lotte feed
 //   2. ENRICHMENT     (x ≈ COL*2)  — ExtraUpdate (fanout mutator)
-//   3. TARGET STATE   (x ≈ COL*4)  — object cuối đọng ở Redis/Mongo
+//   3. TARGET STATE   (x ≈ COL*4)  — final objects persisted in Redis/Mongo
 // ─────────────────────────────────────────────────────────────────────────
 const lifecycleObjectMap = {
   id: 'lc-object-map',
   category: 'lifecycle',
-  title: 'Object Map · Quan hệ phụ thuộc 17 object',
+  title: 'Object Map · Dependency graph of 17 objects',
   subtitle:
-    'Bản đồ tổng 17 object + mũi tên mutate/derive · 3 lane: Event Sources → Enrichment → Target State · Odd-lot cách ly',
+    'Overview of 17 objects + mutate/derive arrows · 3 lanes: Event Sources → Enrichment → Target State · Odd-lot isolated',
   accent: '#6366f1',
   nodes: [
-    // ─── LANE 1 · EVENT SOURCES (từ Lotte feed) ────────────────────
+    // ─── LANE 1 · EVENT SOURCES (from Lotte feed) ────────────────────
     {
       id: 'src-quote',
       kind: 'source',
       layer: 'Event source',
       title: 'SymbolQuote',
-      subtitle: 'Tick khớp lệnh — auto.qt/idxqt/futures',
+      subtitle: 'Trade match tick — auto.qt/idxqt/futures',
       position: { x: 0, y: 0 },
       inputs: [{ name: 'Lotte WS', type: 'event', description: '' }],
       outputs: [
@@ -50,44 +50,44 @@ const lifecycleObjectMap = {
         { name: '→ SymbolQuoteMinute (derive)', type: 'derive', description: '' },
         { name: '→ SymbolStatistic (derive, non-INDEX)', type: 'derive', description: '' },
         { name: '→ ListQuoteMeta + realtime_listQuote_{code}', type: 'persist', description: '' },
-        { name: '→ calExtraUpdate (khi high/low year đổi)', type: 'trigger', description: '' },
+        { name: '→ calExtraUpdate (when high/low year changes)', type: 'trigger', description: '' },
       ],
       details:
-        'Object "nguồn" có impact lớn nhất — 1 SymbolQuote kéo theo 6 object khác bị mutate/derive trong cùng lúc. Đây là lý do QuoteService.updateQuote là hot path quan trọng nhất.',
+        'The "source" object with the highest impact — 1 SymbolQuote triggers 6 other objects to be mutated/derived simultaneously. This is why QuoteService.updateQuote is the most critical hot path.',
     },
     {
       id: 'src-bo',
       kind: 'source',
       layer: 'Event source',
       title: 'BidOffer',
-      subtitle: 'Sổ lệnh 3 bước giá — auto.bo',
+      subtitle: 'Order book top 3 levels — auto.bo',
       position: { x: 0, y: ROW * 1.3 },
       inputs: [{ name: 'Lotte WS', type: 'event', description: '' }],
-      outputs: [{ name: '→ SymbolInfo.bidOfferList (ghi đè top book)', type: 'mutate', description: '' }],
+      outputs: [{ name: '→ SymbolInfo.bidOfferList (overwrite top book)', type: 'mutate', description: '' }],
       details:
-        'BidOffer chỉ mutate DUY NHẤT SymbolInfo (thay bidOfferList + tăng bidAskSequence). Không derive object riêng nào.\nHistory OFF runtime (enableSaveBidOffer=false).',
+        'BidOffer mutates ONLY SymbolInfo (replaces bidOfferList + increments bidAskSequence). Does not derive any separate object.\nHistory OFF at runtime (enableSaveBidOffer=false).',
     },
     {
       id: 'src-status',
       kind: 'source',
       layer: 'Event source',
       title: 'MarketStatus',
-      subtitle: 'Phiên theo market — auto.tickerNews',
+      subtitle: 'Session per market — auto.tickerNews',
       position: { x: 0, y: ROW * 2.4 },
       inputs: [{ name: 'Lotte WS', type: 'event', description: '' }],
       outputs: [
         { name: '→ MarketStatus state (self)', type: 'persist', description: '' },
-        { name: '→ SymbolInfo.sessions (broadcast ATO/ATC)', type: 'broadcast', description: 'toàn bộ mã cùng market' },
+        { name: '→ SymbolInfo.sessions (broadcast ATO/ATC)', type: 'broadcast', description: 'all symbols in the same market' },
       ],
       details:
-        'Event ít nhưng tác động rộng — 1 event ATO có thể mutate hàng nghìn SymbolInfo cùng lúc. Là "self-persisted" vì vừa là event vừa là target state.',
+        'Few events but wide impact — 1 ATO event can mutate thousands of SymbolInfo entries at once. It is "self-persisted" because it is both an event and a target state.',
     },
     {
       id: 'src-deal',
       kind: 'source',
       layer: 'Event source',
       title: 'DealNotice',
-      subtitle: 'Thỏa thuận khớp — put-through feed',
+      subtitle: 'Put-through match — put-through feed',
       position: { x: 0, y: ROW * 3.5 },
       inputs: [{ name: 'Lotte WS', type: 'event', description: '' }],
       outputs: [
@@ -96,60 +96,60 @@ const lifecycleObjectMap = {
         { name: '→ ExtraUpdate (PT summary)', type: 'trigger', description: '' },
       ],
       details:
-        'Dual-role: vừa là event có lịch sử riêng (list) vừa là trigger cho ExtraUpdate để cộng dồn PT summary vào SymbolInfo.',
+        'Dual-role: both an event with its own history (list) and a trigger for ExtraUpdate to accumulate PT summary into SymbolInfo.',
     },
     {
       id: 'src-adv',
       kind: 'source',
       layer: 'Event source',
       title: 'Advertised',
-      subtitle: 'Rao bán thỏa thuận',
+      subtitle: 'Put-through advertise offer',
       position: { x: 0, y: ROW * 4.5 },
       inputs: [{ name: 'Lotte WS', type: 'event', description: '' }],
       outputs: [{ name: '→ Advertised list per market (history only)', type: 'persist', description: '' }],
       details:
-        'Object "cô lập" nhất — chỉ có list history, KHÔNG mutate SymbolInfo vì chưa khớp.',
+        'The most "isolated" object — has only history list, does NOT mutate SymbolInfo because it has not been matched yet.',
     },
     {
       id: 'src-index',
       kind: 'source',
       layer: 'Event source',
       title: 'IndexStockList',
-      subtitle: 'Cấu trúc rổ chỉ số',
+      subtitle: 'Index basket composition',
       position: { x: 0, y: ROW * 5.5 },
       inputs: [{ name: 'Admin job / collector init', type: 'trigger', description: '' }],
       outputs: [{ name: '→ IndexStockList Mongo collection', type: 'persist', description: '' }],
       details:
-        'Event "chậm" — chỉ thay đổi khi sàn review rổ (vài lần/tháng). Không có hot state Redis.',
+        'A "slow" event — only changes when the exchange reviews the basket (a few times per month). No hot state in Redis.',
     },
 
-    // ─── LANE 1.5 · ODD-LOT (tách riêng) ───────────────────────────
+    // ─── LANE 1.5 · ODD-LOT (separated) ───────────────────────────
     {
       id: 'src-qt-odd',
       kind: 'source',
       layer: 'Event source · Odd-lot',
       title: 'SymbolQuoteOddLot',
-      subtitle: 'Quote lô lẻ — auto.qt.oddlot',
+      subtitle: 'Odd-lot quote — auto.qt.oddlot',
       position: { x: 0, y: ROW * 7 },
-      inputs: [{ name: 'Lotte WS (channel riêng)', type: 'event', description: '' }],
+      inputs: [{ name: 'Lotte WS (separate channel)', type: 'event', description: '' }],
       outputs: [{ name: '→ SymbolInfoOddLot', type: 'mutate', description: '' }],
       details:
-        'Nhánh LÔ LẺ CÁCH LY — chỉ mutate SymbolInfoOddLot, KHÔNG chạm SymbolInfo thường, không derive minute/stat/daily/foreigner.',
+        'ISOLATED ODD-LOT branch — only mutates SymbolInfoOddLot, does NOT touch regular SymbolInfo, and does not derive minute/stat/daily/foreigner.',
     },
     {
       id: 'src-bo-odd',
       kind: 'source',
       layer: 'Event source · Odd-lot',
       title: 'BidOfferOddLot',
-      subtitle: 'Sổ lệnh lô lẻ — auto.bo.oddlot',
+      subtitle: 'Odd-lot order book — auto.bo.oddlot',
       position: { x: 0, y: ROW * 8.1 },
-      inputs: [{ name: 'Lotte WS (channel riêng)', type: 'event', description: '' }],
+      inputs: [{ name: 'Lotte WS (separate channel)', type: 'event', description: '' }],
       outputs: [
         { name: '→ SymbolInfoOddLot.bidOfferList', type: 'mutate', description: '' },
         { name: '→ BidOfferOddLot list (runtime ON)', type: 'persist', description: '' },
       ],
       details:
-        'Khác BidOffer thường: luôn ON ghi history realtime_listBidOfferOddLot_{code}.',
+        'Different from regular BidOffer: history realtime_listBidOfferOddLot_{code} is always ON.',
     },
 
     // ─── LANE 2 · ENRICHMENT (fanout mutator) ───────────────────────
@@ -161,7 +161,7 @@ const lifecycleObjectMap = {
       subtitle: 'Fanout mutator — 5 sources → 3 targets',
       position: { x: COL * 2, y: ROW * 3 },
       inputs: [
-        { name: '← SymbolQuote (calExtraUpdate khi high/low year đổi)', type: 'trigger', description: '' },
+        { name: '← SymbolQuote (calExtraUpdate when high/low year changes)', type: 'trigger', description: '' },
         { name: '← IndexUpdateData VN30 (basis)', type: 'trigger', description: '' },
         { name: '← FuturesUpdateData (basis)', type: 'trigger', description: '' },
         { name: '← StockUpdateData CW (breakEven)', type: 'trigger', description: '' },
@@ -173,7 +173,7 @@ const lifecycleObjectMap = {
         { name: '→ SymbolDaily (upsert)', type: 'mutate', description: '' },
       ],
       details:
-        'ExtraUpdate KHÔNG phải object lưu lâu — chỉ tồn tại như message Kafka. Sau khi mutate 3 target xong là tan biến. Đặt ở giữa lane 2 để nhìn rõ vai trò "cầu nối" giữa nhiều source → nhiều target.',
+        'ExtraUpdate is NOT a long-lived object — it only exists as a Kafka message. After mutating the 3 targets it disappears. Placed in the middle of lane 2 to clearly show its "bridge" role between multiple sources → multiple targets.',
     },
 
     // ─── LANE 3 · TARGET STATE (hot state Redis) ────────────────────
@@ -198,7 +198,7 @@ const lifecycleObjectMap = {
         { name: '→ Mongo c_symbol_info (6×/day)', type: 'persist', description: '' },
       ],
       details:
-        'Object TRUNG TÂM nhất trong hệ thống — mọi flow đều đổ về. Là "single source of truth" cho read snapshot.',
+        'The MOST CENTRAL object in the system — all flows end up here. It is the "single source of truth" for read snapshots.',
     },
     {
       id: 'tgt-foreigner',
@@ -215,7 +215,7 @@ const lifecycleObjectMap = {
         { name: '→ Mongo c_foreigner_daily', type: 'persist', description: 'id = code_yyyyMMdd' },
         { name: '→ /symbol/{code}/foreigner (overlay today)', type: 'read', description: '' },
       ],
-      details: 'State NĐTNN cộng dồn intraday. Persist 6×/day sang Mongo.',
+      details: 'Intraday accumulated foreign investor state. Persisted to Mongo 6×/day.',
     },
     {
       id: 'tgt-daily',
@@ -226,13 +226,13 @@ const lifecycleObjectMap = {
       position: { x: COL * 4, y: ROW * 1.2 },
       inputs: [
         { name: '← SymbolQuote (OHLCV)', type: 'mutate', description: '' },
-        { name: '← ExtraUpdate (pt cộng dồn)', type: 'mutate', description: '' },
+        { name: '← ExtraUpdate (pt accumulation)', type: 'mutate', description: '' },
       ],
       outputs: [
-        { name: '→ SymbolPrevious (hậu xử lý)', type: 'derive', description: '' },
+        { name: '→ SymbolPrevious (post-process)', type: 'derive', description: '' },
         { name: '→ Mongo c_symbol_daily', type: 'persist', description: '' },
       ],
-      details: 'Daily OHLCV. Cleared 22:50, Mongo giữ historical.',
+      details: 'Daily OHLCV. Cleared at 22:50; Mongo retains historical data.',
     },
     {
       id: 'tgt-minute',
@@ -241,12 +241,12 @@ const lifecycleObjectMap = {
       title: 'SymbolQuoteMinute',
       subtitle: 'realtime_listQuoteMinute_{code}',
       position: { x: COL * 4, y: ROW * 3.6 },
-      inputs: [{ name: '← SymbolQuote (3 nhánh create/update/skip)', type: 'derive', description: '' }],
+      inputs: [{ name: '← SymbolQuote (3 branches create/update/skip)', type: 'derive', description: '' }],
       outputs: [
         { name: '→ queryMinuteChart / TV intraday', type: 'read', description: '' },
         { name: '→ Mongo (OFF runtime)', type: 'skip', description: 'enableSaveQuoteMinute=false' },
       ],
-      details: 'Nến phút derive từ Quote. Không persist.',
+      details: 'Minute bars derived from Quote. Not persisted.',
     },
     {
       id: 'tgt-stat',
@@ -260,7 +260,7 @@ const lifecycleObjectMap = {
         { name: '→ querySymbolStatistics', type: 'read', description: '' },
         { name: '→ ws market.statistic.{code} (delta)', type: 'read', description: '' },
       ],
-      details: 'Aggregate theo giá. INDEX bị skip vì không có khớp lệnh.',
+      details: 'Aggregate by price. INDEX is skipped because indices have no trade matching.',
     },
     {
       id: 'tgt-meta',
@@ -271,7 +271,7 @@ const lifecycleObjectMap = {
       position: { x: COL * 4, y: ROW * 5.8 },
       inputs: [{ name: '← SymbolQuote.addSymbolQuote (append + rebalance)', type: 'derive', description: '' }],
       outputs: [{ name: '→ querySymbolQuote / queryQuoteData (paging)', type: 'read', description: '' }],
-      details: 'Metadata kỹ thuật để paginate realtime_listQuote_{code}. Partition overflow khi list vượt ngưỡng.',
+      details: 'Technical metadata to paginate realtime_listQuote_{code}. Partition overflows when the list exceeds the threshold.',
     },
     {
       id: 'tgt-status',
@@ -285,7 +285,7 @@ const lifecycleObjectMap = {
         { name: '→ /sessionStatus', type: 'read', description: '' },
         { name: '→ Mongo c_market_session_status', type: 'persist', description: '' },
       ],
-      details: 'Vừa là event vừa là target — lưu snapshot phiên hiện tại của mỗi market.',
+      details: 'Both an event and a target — stores the current session snapshot of each market.',
     },
     {
       id: 'tgt-deal-list',
@@ -299,7 +299,7 @@ const lifecycleObjectMap = {
         { name: '→ queryPutThroughDeal / queryPtDealTotal', type: 'read', description: '' },
         { name: '→ Mongo c_deal_notice', type: 'persist', description: '' },
       ],
-      details: 'History theo market. Dedupe theo confirmNumber.',
+      details: 'History per market. Deduplicated by confirmNumber.',
     },
     {
       id: 'tgt-adv-list',
@@ -310,7 +310,7 @@ const lifecycleObjectMap = {
       position: { x: COL * 4, y: ROW * 9 },
       inputs: [{ name: '← Advertised event', type: 'persist', description: '' }],
       outputs: [{ name: '→ queryPutThroughAdvertise', type: 'read', description: '' }],
-      details: 'History rao bán theo market.',
+      details: 'Advertise history per market.',
     },
 
     // ─── LANE 3.5 · ODD-LOT TARGETS ─────────────────────────────────
@@ -329,7 +329,7 @@ const lifecycleObjectMap = {
         { name: '→ /symbol/oddlotLatest', type: 'read', description: '' },
         { name: '→ Mongo odd-lot collection', type: 'persist', description: '' },
       ],
-      details: 'Snapshot lô lẻ — single hash nhận ghi từ 2 mutator.',
+      details: 'Odd-lot snapshot — a single hash written to by 2 mutators.',
     },
     {
       id: 'tgt-bo-odd',
@@ -340,7 +340,7 @@ const lifecycleObjectMap = {
       position: { x: COL * 4, y: ROW * 11.7 },
       inputs: [{ name: '← BidOfferOddLot event', type: 'persist', description: '' }],
       outputs: [{ name: '→ queryBidOfferOddLotHistory', type: 'read', description: '' }],
-      details: 'KHÁC bản stock — runtime ON, có history đầy đủ.',
+      details: 'DIFFERENT from the stock version — runtime ON, full history kept.',
     },
 
     // ─── LANE 4 · POST-PROCESS & STATIC ─────────────────────────────
@@ -351,26 +351,26 @@ const lifecycleObjectMap = {
       title: 'SymbolPrevious',
       subtitle: 'c_symbol_previous (Mongo only)',
       position: { x: COL * 6.5, y: ROW * 1.2 },
-      inputs: [{ name: '← SymbolDaily (trong saveRedisToDatabase)', type: 'derive', description: '' }],
-      outputs: [{ name: '→ Client tính biến động so với phiên trước', type: 'read', description: '' }],
+      inputs: [{ name: '← SymbolDaily (inside saveRedisToDatabase)', type: 'derive', description: '' }],
+      outputs: [{ name: '→ Client computes change vs previous session', type: 'read', description: '' }],
       details:
-        'Hậu xử lý — sameDate chỉ update close, khác date → advance previousClose/previousTradingDate. Không có Redis hot state.',
+        'Post-process — sameDate only updates close, different date → advance previousClose/previousTradingDate. No Redis hot state.',
     },
     {
       id: 'tgt-ext',
       kind: 'redis',
       layer: 'Static support',
       title: 'symbolInfoExtend',
-      subtitle: 'Hash static (không prefix realtime_)',
+      subtitle: 'Static hash (no realtime_ prefix)',
       position: { x: COL * 6.5, y: ROW * 2.4 },
-      inputs: [{ name: '← Admin batch job (unclear trong docs)', type: 'ingest', description: '' }],
-      outputs: [{ name: '→ querySymbolStaticInfo (merge với SymbolInfo)', type: 'read', description: '' }],
+      inputs: [{ name: '← Admin batch job (unclear in docs)', type: 'ingest', description: '' }],
+      outputs: [{ name: '→ querySymbolStaticInfo (merge with SymbolInfo)', type: 'read', description: '' }],
       details:
-        'Data static (listedQty/avgTradingVol10/reference/floor/ceiling). Merge cùng SymbolInfo khi query info cơ bản.',
+        'Static data (listedQty/avgTradingVol10/reference/floor/ceiling). Merged with SymbolInfo when querying basic info.',
     },
   ],
   edges: [
-    // Quote fanout (nhánh mutate chính)
+    // Quote fanout (main mutate branch)
     { source: 'src-quote', target: 'tgt-info', label: 'mutate', animated: true },
     { source: 'src-quote', target: 'tgt-foreigner', label: 'mutate' },
     { source: 'src-quote', target: 'tgt-daily', label: 'mutate' },
@@ -395,21 +395,21 @@ const lifecycleObjectMap = {
     { source: 'src-adv', target: 'tgt-adv-list', label: 'RPUSH history' },
 
     // IndexStockList persist
-    { source: 'src-index', target: 'tgt-info', label: 'join trong getIndexRanks' },
+    { source: 'src-index', target: 'tgt-info', label: 'join inside getIndexRanks' },
 
-    // Extra fanout (3 target)
+    // Extra fanout (3 targets)
     { source: 'enrich-extra', target: 'tgt-info', label: 'merge basis/pt/year', animated: true },
     { source: 'enrich-extra', target: 'tgt-foreigner', label: 'merge' },
     { source: 'enrich-extra', target: 'tgt-daily', label: 'upsert' },
 
-    // Odd-lot (cách ly)
+    // Odd-lot (isolated)
     { source: 'src-qt-odd', target: 'tgt-info-odd', label: 'mutate', animated: true },
     { source: 'src-bo-odd', target: 'tgt-info-odd', label: 'mutate top book', animated: true },
     { source: 'src-bo-odd', target: 'tgt-bo-odd', label: 'RPUSH history' },
 
     // Post-process
-    { source: 'tgt-daily', target: 'tgt-prev', label: 'derive trong cron' },
-    { source: 'tgt-ext', target: 'tgt-info', label: 'merge khi query' },
+    { source: 'tgt-daily', target: 'tgt-prev', label: 'derive in cron' },
+    { source: 'tgt-ext', target: 'tgt-info', label: 'merge on query' },
   ],
 };
 
@@ -421,59 +421,59 @@ const lifecycleSymbolInfo = {
   category: 'lifecycle',
   title: 'Lifecycle · SymbolInfo',
   subtitle:
-    'Snapshot trung tâm 1 mã · 6 nguồn mutate (Init + Quote + BidOffer + Extra + MarketStatus + DealNotice) → realtime_mapSymbolInfo[code] → query-v2 + ws-v2 + Mongo snapshot',
+    'Central snapshot for 1 symbol · 6 mutating sources (Init + Quote + BidOffer + Extra + MarketStatus + DealNotice) → realtime_mapSymbolInfo[code] → query-v2 + ws-v2 + Mongo snapshot',
   accent: '#60a5fa',
   nodes: [
     // ─── 6 mutators ──────────────────────────────────────────────────
     {
       id: 'init',
       kind: 'logic',
-      layer: 'Init (đầu ngày)',
+      layer: 'Init (start of day)',
       title: 'LotteApiSymbolInfoService.downloadSymbol()',
-      subtitle: 'Baseline SymbolInfo map từ REST',
+      subtitle: 'Baseline SymbolInfo map from REST',
       position: { x: 0, y: 0 },
       inputs: [{ name: 'Lotte REST', type: 'REST', description: 'securities-name/price, indexs-list, info, derivatives' }],
-      outputs: [{ name: 'Map<code, SymbolInfo> baseline', type: 'HSET', description: 'Qua InitService' }],
+      outputs: [{ name: 'Map<code, SymbolInfo> baseline', type: 'HSET', description: 'Via InitService' }],
       details:
-        'Đầu ngày collector gọi 5 REST endpoint Lotte (securities-name, securities-price, indexs-list, indexs-info, derivatives-info), chuẩn hoá mỗi record thành SymbolInfo rồi MERGE vào 1 Map<code, SymbolInfo> theo thứ tự ưu tiên.\n\n' +
-        'Sau khi merge xong:\n' +
-        '  • Nếu marketInit được bật → gọi trực tiếp marketInit.init(allSymbols) (in-process)\n' +
-        '  • Nếu không → publish batch qua Kafka topic symbolInfoUpdate cho realtime-v2 consume\n\n' +
-        'Kết quả realtime-v2 HSET toàn bộ vào realtime_mapSymbolInfo[code] làm baseline trước khi stream quote/bidoffer.',
+        'At start of day the collector calls 5 Lotte REST endpoints (securities-name, securities-price, indexs-list, indexs-info, derivatives-info), normalizes each record into a SymbolInfo, then MERGES them into a single Map<code, SymbolInfo> according to priority order.\n\n' +
+        'After the merge:\n' +
+        '  • If marketInit is enabled → call marketInit.init(allSymbols) directly (in-process)\n' +
+        '  • Otherwise → publish batch via Kafka topic symbolInfoUpdate for realtime-v2 to consume\n\n' +
+        'The result is that realtime-v2 HSETs everything into realtime_mapSymbolInfo[code] as baseline before streaming quote/bidoffer.',
     },
     {
       id: 'quote',
       kind: 'logic',
       layer: 'Mutator · Quote',
       title: 'QuoteService.updateQuote()',
-      subtitle: 'Merge field tick vào SymbolInfo',
+      subtitle: 'Merge tick fields into SymbolInfo',
       position: { x: 0, y: ROW },
       inputs: [{ name: 'SymbolQuote', type: 'Kafka quoteUpdate', description: '' }],
       outputs: [{ name: 'merge fields: OHLC, volume, matchedBy, foreigner, session, sequence...', type: 'merge', description: '' }],
       details:
-        'Sau khi reCalculate() enrich xong SymbolQuote, method này đọc SymbolInfo hiện tại từ cache, gọi ConvertUtils.updateByQuote(symbolInfo, symbolQuote) để merge các field:\n' +
+        'After reCalculate() finishes enriching SymbolQuote, this method reads the current SymbolInfo from cache, calls ConvertUtils.updateByQuote(symbolInfo, symbolQuote) to merge the fields:\n' +
         '  • OHLC (open/high/low/last), tradingVolume/Value, matchingVolume, matchedBy\n' +
         '  • foreignerMatchBuy/Sell Volume/Value, holdVolume/Ratio, buyAbleRatio\n' +
-        '  • session (nếu quote mang thông tin phiên), quoteSequence++\n' +
+        '  • session (if the quote carries session info), quoteSequence++\n' +
         '  • updatedBy = "SymbolQuote", updatedAt = now\n\n' +
-        'Cuối cùng HSET realtime_mapSymbolInfo[code] với snapshot mới.',
+        'Finally HSETs realtime_mapSymbolInfo[code] with the new snapshot.',
     },
     {
       id: 'bidoffer',
       kind: 'logic',
       layer: 'Mutator · BidOffer',
       title: 'BidOfferService.updateBidOffer()',
-      subtitle: 'Thay top book 3 bước giá vào SymbolInfo',
+      subtitle: 'Replace top book (3 price levels) in SymbolInfo',
       position: { x: 0, y: ROW * 2 },
       inputs: [{ name: 'BidOffer', type: 'Kafka bidOfferUpdate', description: '' }],
       outputs: [{ name: 'merge fields: bidOfferList(3), expectedPrice/Change/Rate, session, totals, bidAskSequence', type: 'merge', description: '' }],
       details:
-        'Consume Message<BidOffer> từ Kafka rồi:\n' +
-        '  1. Load SymbolInfo hiện tại từ cache (nếu miss → Redis HGET)\n' +
-        '  2. Gọi ConvertUtils.updateByBidOffer(symbolInfo, bidOffer) để GHI ĐÈ symbolInfo.bidOfferList = top book mới nhất (3 mức giá bid + 3 mức giá ask)\n' +
-        '  3. Merge totalBidVolume / totalAskVolume, expectedPrice/expectedChange/expectedRate (cho phiên ATO/ATC)\n' +
-        '  4. Nếu BidOffer mang session → ghi đè symbolInfo.session\n' +
-        '  5. Tăng bidAskSequence (counter riêng cho order book)\n' +
+        'Consumes Message<BidOffer> from Kafka then:\n' +
+        '  1. Loads current SymbolInfo from cache (on miss → Redis HGET)\n' +
+        '  2. Calls ConvertUtils.updateByBidOffer(symbolInfo, bidOffer) to OVERWRITE symbolInfo.bidOfferList = latest top book (3 bid levels + 3 ask levels)\n' +
+        '  3. Merges totalBidVolume / totalAskVolume, expectedPrice/expectedChange/expectedRate (for ATO/ATC sessions)\n' +
+        '  4. If BidOffer carries session → overwrite symbolInfo.session\n' +
+        '  5. Increments bidAskSequence (a separate counter for the order book)\n' +
         '  6. HSET realtime_mapSymbolInfo[code]',
     },
     {
@@ -486,54 +486,54 @@ const lifecycleSymbolInfo = {
       inputs: [{ name: 'ExtraQuote', type: 'Kafka extraUpdate/calExtraUpdate', description: '' }],
       outputs: [{ name: 'merge fields: basis, breakEven, ptVolume, ptValue, highYear, lowYear', type: 'merge', description: '' }],
       details:
-        'ExtraQuote là "event enrichment" — không có state riêng, chỉ để mutate các object đích. Method này:\n' +
-        '  1. Ensure SymbolInfo tồn tại\n' +
-        '  2. Gọi ConvertUtils.updateByExtraQuote(symbolInfo, extraQuote) để merge:\n' +
-        '     – basis (với futures, = futuresLast − vn30Last)\n' +
-        '     – breakEven (với chứng quyền CW)\n' +
-        '     – ptVolume / ptValue (lũy kế từ DealNotice)\n' +
-        '     – highYear / lowYear (khi reCalculate phát hiện đỉnh/đáy năm đổi)\n' +
+        'ExtraQuote is an "enrichment event" — it has no state of its own, only to mutate target objects. This method:\n' +
+        '  1. Ensures SymbolInfo exists\n' +
+        '  2. Calls ConvertUtils.updateByExtraQuote(symbolInfo, extraQuote) to merge:\n' +
+        '     – basis (for futures, = futuresLast − vn30Last)\n' +
+        '     – breakEven (for covered warrants, CW)\n' +
+        '     – ptVolume / ptValue (accumulated from DealNotice)\n' +
+        '     – highYear / lowYear (when reCalculate detects a new yearly high/low)\n' +
         '  3. HSET realtime_mapSymbolInfo[code]\n\n' +
-        'Đồng thời cũng mutate ForeignerDaily và upsert SymbolDaily (xem lifecycle riêng).',
+        'Also mutates ForeignerDaily and upserts SymbolDaily (see their separate lifecycles).',
     },
     {
       id: 'status',
       kind: 'logic',
       layer: 'Mutator · MarketStatus',
       title: 'MarketStatusService.updateMarketStatus()',
-      subtitle: 'Propagate sessions khi ATO/ATC',
+      subtitle: 'Propagate sessions on ATO/ATC',
       position: { x: 0, y: ROW * 4 },
       inputs: [{ name: 'MarketStatus', type: 'Kafka marketStatus', description: '' }],
-      outputs: [{ name: 'set sessions cho MỌI SymbolInfo cùng market', type: 'broadcast', description: 'null khi khác ATO/ATC' }],
+      outputs: [{ name: 'set sessions for ALL SymbolInfo in the same market', type: 'broadcast', description: 'null when not ATO/ATC' }],
       details:
-        'Đây là mutator DUY NHẤT "broadcast" — 1 event đụng tới hàng nghìn SymbolInfo.\n\n' +
-        'Khi nhận MarketStatus (HOSE ATO, HNX ATC...):\n' +
-        '  1. HSET realtime_mapMarketStatus[market_type] để lưu state phiên\n' +
-        '  2. NẾU status ∈ {ATO, ATC}:\n' +
-        '     – Iterate toàn bộ SymbolInfo thuộc cùng market\n' +
-        '     – Ghi symbolInfo.sessions = status cho từng mã\n' +
-        '     – HSET lại realtime_mapSymbolInfo[code] cho tất cả\n' +
-        '  3. NẾU status khác → sessions = null (clear cờ phiên)\n\n' +
-        'Đây cũng là lý do flag "sessions" trong SymbolInfo nhất quán theo market.',
+        'This is the ONLY "broadcast" mutator — 1 event can touch thousands of SymbolInfo entries.\n\n' +
+        'On receiving MarketStatus (HOSE ATO, HNX ATC...):\n' +
+        '  1. HSET realtime_mapMarketStatus[market_type] to store session state\n' +
+        '  2. IF status ∈ {ATO, ATC}:\n' +
+        '     – Iterate all SymbolInfo in the same market\n' +
+        '     – Write symbolInfo.sessions = status for each symbol\n' +
+        '     – HSET realtime_mapSymbolInfo[code] for every one of them\n' +
+        '  3. IF other status → sessions = null (clear session flag)\n\n' +
+        'This is why the "sessions" flag in SymbolInfo is consistent across a market.',
     },
     {
       id: 'deal',
       kind: 'logic',
       layer: 'Mutator · DealNotice',
       title: 'DealNoticeService.updateDealNotice()',
-      subtitle: 'Cộng ptTradingVolume / ptTradingValue',
+      subtitle: 'Accumulate ptTradingVolume / ptTradingValue',
       position: { x: 0, y: ROW * 5 },
       inputs: [{ name: 'DealNotice', type: 'Kafka dealNoticeUpdate', description: '' }],
-      outputs: [{ name: 'merge: ptTradingVolume, ptTradingValue', type: 'merge', description: 'dedupe theo confirmNumber' }],
+      outputs: [{ name: 'merge: ptTradingVolume, ptTradingValue', type: 'merge', description: 'dedupe by confirmNumber' }],
       details:
-        'Mỗi thỏa thuận khớp (put-through matched) kéo theo cập nhật số tổng PT cho mã.\n\n' +
-        '  1. Ensure SymbolInfo của mã tồn tại\n' +
-        '  2. Load toàn bộ DealNotice đã có để DEDUPE theo confirmNumber (Lotte có thể resend)\n' +
-        '  3. Gọi ConvertUtils.updateByDealNotice(symbolInfo, dealNotice):\n' +
+        'Each matched put-through deal triggers an update to the symbol\'s PT totals.\n\n' +
+        '  1. Ensure SymbolInfo for the symbol exists\n' +
+        '  2. Load all existing DealNotice entries to DEDUPE by confirmNumber (Lotte may resend)\n' +
+        '  3. Call ConvertUtils.updateByDealNotice(symbolInfo, dealNotice):\n' +
         '     – symbolInfo.ptTradingVolume += deal.volume\n' +
         '     – symbolInfo.ptTradingValue += deal.value\n' +
         '  4. HSET realtime_mapSymbolInfo[code]\n' +
-        '  5. RPUSH realtime_listDealNotice_{market} để giữ history (xem lifecycle DealNotice)',
+        '  5. RPUSH realtime_listDealNotice_{market} to keep history (see DealNotice lifecycle)',
     },
 
     // ─── Central Redis ────────────────────────────────────────────────
@@ -544,12 +544,12 @@ const lifecycleSymbolInfo = {
       title: 'realtime_mapSymbolInfo[code]',
       subtitle: 'Hash — single source of truth',
       position: { x: COL * 2, y: ROW * 2.5 },
-      inputs: [{ name: 'HSET từ 6 mutators', type: 'Redis', description: '' }],
+      inputs: [{ name: 'HSET from 6 mutators', type: 'Redis', description: '' }],
       outputs: [{ name: 'query-v2 + ws-v2 + snapshot cron', type: 'Hash', description: '' }],
       details:
-        'Redis hash key = realtime_mapSymbolInfo, field = code (VD "SHB", "VIC"), value = JSON SymbolInfo.\n\n' +
-        'Fields tiêu biểu: code/type/name, OHLC, change/rate, volume/value, matchedBy, referencePrice/ceiling/floor, bidOfferList[3], foreignerMatchBuy/Sell*, sessions, expectedPrice/Change/Rate, basis, breakEven, ptTradingVolume/Value, quoteSequence, bidAskSequence, updatedBy, updatedAt.\n\n' +
-        'Là "single source of truth" cho snapshot realtime — mọi read (priceBoard, ranking, ws snapshot) đều đi qua key này.',
+        'Redis hash key = realtime_mapSymbolInfo, field = code (e.g. "SHB", "VIC"), value = JSON SymbolInfo.\n\n' +
+        'Typical fields: code/type/name, OHLC, change/rate, volume/value, matchedBy, referencePrice/ceiling/floor, bidOfferList[3], foreignerMatchBuy/Sell*, sessions, expectedPrice/Change/Rate, basis, breakEven, ptTradingVolume/Value, quoteSequence, bidAskSequence, updatedBy, updatedAt.\n\n' +
+        'This is the "single source of truth" for realtime snapshots — every read (priceBoard, ranking, ws snapshot) goes through this key.',
     },
 
     // ─── Delivery ────────────────────────────────────────────────────
@@ -562,15 +562,15 @@ const lifecycleSymbolInfo = {
       position: { x: COL * 4, y: ROW * 1 },
       inputs: [{ name: 'HMGET/HGETALL realtime_mapSymbolInfo', type: 'Redis', description: '' }],
       outputs: [
-        { name: 'querySymbolLatestNormal', type: 'endpoint', description: 'Snapshot 1 mã' },
-        { name: 'queryPriceBoard', type: 'endpoint', description: 'Bảng giá theo market' },
-        { name: 'Ranking APIs (UpDown/Top/Period...)', type: 'endpoint', description: 'Sort theo rate/volume/value' },
-        { name: 'TradingView querySymbolInfo / querySymbolSearch', type: 'endpoint', description: 'Search + meta cho TV' },
-        { name: 'FIX queryFixSymbolList', type: 'endpoint', description: 'List cho gateway FIX' },
+        { name: 'querySymbolLatestNormal', type: 'endpoint', description: 'Snapshot for 1 symbol' },
+        { name: 'queryPriceBoard', type: 'endpoint', description: 'Price board per market' },
+        { name: 'Ranking APIs (UpDown/Top/Period...)', type: 'endpoint', description: 'Sort by rate/volume/value' },
+        { name: 'TradingView querySymbolInfo / querySymbolSearch', type: 'endpoint', description: 'Search + meta for TV' },
+        { name: 'FIX queryFixSymbolList', type: 'endpoint', description: 'List for FIX gateway' },
       ],
       details:
-        'Mọi API "snapshot-style" đều đọc trực tiếp hash này. Khi cần nhiều mã (priceBoard, ranking) → 1 HMGET duy nhất lấy đủ — không cần gọi lại REST Lotte.\n\n' +
-        'Với INDEX (VNINDEX, HNX30...) data cũng nằm trong cùng hash chung với cổ phiếu — phân biệt bằng field "type".',
+        'All "snapshot-style" APIs read directly from this hash. When many symbols are needed (priceBoard, ranking) → a single HMGET fetches all of them — no need to re-call Lotte REST.\n\n' +
+        'For INDEX (VNINDEX, HNX30...) data is also in the same hash as stocks — distinguished by the "type" field.',
     },
     {
       id: 'wsv2',
@@ -582,11 +582,11 @@ const lifecycleSymbolInfo = {
       inputs: [{ name: 'subscribe channel + returnSnapShot=true', type: 'WS', description: '' }],
       outputs: [{ name: 'market.returnSnapshot', type: 'WS frame', description: 'compact payload' }],
       details:
-        'Khi client subscribe market.quote.{code} / market.bidoffer.{code} với flag returnSnapShot=true:\n' +
-        '  1. ws-v2 HGET realtime_mapSymbolInfo[code]\n' +
-        '  2. Gọi convertSymbolInfoV2() để "compact" payload (rút gọn field name để tiết kiệm băng thông)\n' +
-        '  3. Push frame market.returnSnapshot chỉ cho riêng client đó\n\n' +
-        'Nhờ vậy client mới join thấy ngay trạng thái mới nhất mà không phải chờ tick kế tiếp.',
+        'When a client subscribes to market.quote.{code} / market.bidoffer.{code} with returnSnapShot=true:\n' +
+        '  1. ws-v2 HGETs realtime_mapSymbolInfo[code]\n' +
+        '  2. Calls convertSymbolInfoV2() to "compact" the payload (shorten field names to save bandwidth)\n' +
+        '  3. Pushes a market.returnSnapshot frame only to that client\n\n' +
+        'This way a newly joined client immediately sees the latest state without waiting for the next tick.',
     },
 
     // ─── Persist & reset ─────────────────────────────────────────────
@@ -600,11 +600,11 @@ const lifecycleSymbolInfo = {
       inputs: [{ name: 'getAllSymbolInfo()', type: 'HGETALL', description: '' }],
       outputs: [{ name: 'bulk write c_symbol_info', type: 'Mongo', description: '' }],
       details:
-        'Cron 6 lần/ngày bao phủ khung trước/sau nghỉ trưa và khung đóng cửa.\n\n' +
+        'Cron runs 6×/day covering the pre/post lunch break and market close windows.\n\n' +
         'Pipeline:\n' +
-        '  1. HGETALL realtime_mapSymbolInfo → toàn bộ SymbolInfo đang active\n' +
-        '  2. Bulk upsert vào Mongo c_symbol_info (_id = code_date)\n' +
-        '  3. Dùng làm fallback khi Redis bị flush hoặc cần tra lại intraday sau đó.',
+        '  1. HGETALL realtime_mapSymbolInfo → all active SymbolInfo\n' +
+        '  2. Bulk upsert into Mongo c_symbol_info (_id = code_date)\n' +
+        '  3. Used as fallback when Redis is flushed or for intraday lookups later.',
     },
     {
       id: 'cron-refresh',
@@ -617,16 +617,16 @@ const lifecycleSymbolInfo = {
       outputs: [
         { name: 'reset sequence / matchingVolume / matchedBy', type: 'reset', description: '' },
         { name: 'reset bidOfferList + oddlotBidOfferList', type: 'reset', description: '' },
-        { name: 'GIỮ LẠI SymbolInfo map', type: 'preserve', description: 'Không clear toàn bộ' },
+        { name: 'KEEP SymbolInfo map', type: 'preserve', description: 'Do not clear the whole map' },
       ],
       details:
-        'Chạy đêm 01:35 để "dọn" SymbolInfo cho ngày mới NHƯNG KHÔNG xoá toàn bộ map (khác removeAutoData).\n\n' +
-        'Reset các field intraday:\n' +
+        'Runs nightly at 01:35 to "clean up" SymbolInfo for a new day BUT does NOT delete the whole map (unlike removeAutoData).\n\n' +
+        'Resets intraday fields:\n' +
         '  • sequence = 0, bidAskSequence = 0\n' +
         '  • matchingVolume = 0, matchedBy = null\n' +
-        '  • bidOfferList = [] (order book cũ không còn hợp lệ)\n' +
-        '  • oddlotBidOfferList = [] (tương tự cho SymbolInfoOddLot)\n\n' +
-        'Các field baseline (code/name/type/referencePrice/ceiling/floor/listedQty) vẫn được giữ nên ngày mới không cần init lại từ REST. Gọi cacheService.reset() để xoá in-memory cache tránh stale.',
+        '  • bidOfferList = [] (old order book no longer valid)\n' +
+        '  • oddlotBidOfferList = [] (same for SymbolInfoOddLot)\n\n' +
+        'Baseline fields (code/name/type/referencePrice/ceiling/floor/listedQty) are preserved so a new day does not need to re-init from REST. Also calls cacheService.reset() to clear in-memory cache and avoid stale data.',
     },
     {
       id: 'mongo',
@@ -636,10 +636,10 @@ const lifecycleSymbolInfo = {
       subtitle: 'Day-level snapshot',
       position: { x: COL * 4, y: 0 },
       inputs: [{ name: 'saveRedisToDatabase bulk', type: 'Mongo', description: '' }],
-      outputs: [{ name: 'Fallback khi Redis miss', type: 'find', description: '' }],
+      outputs: [{ name: 'Fallback on Redis miss', type: 'find', description: '' }],
       details:
-        '_id = code_yyyyMMdd, index theo { code, date }.\n\n' +
-        'Vai trò: chỉ là snapshot chậm — không serve traffic hot. Realtime query luôn ưu tiên Redis trước, chỉ fallback Mongo khi Redis miss (hiếm khi xảy ra trong giờ giao dịch).',
+        '_id = code_yyyyMMdd, indexed by { code, date }.\n\n' +
+        'Role: a slow snapshot only — not serving hot traffic. Realtime queries always prefer Redis first, falling back to Mongo only on miss (rare during trading hours).',
     },
   ],
   edges: [
@@ -658,14 +658,14 @@ const lifecycleSymbolInfo = {
 };
 
 // ─────────────────────────────────────────────────────────────────────────
-// 2. SymbolQuote — Tick intraday event
+// 2. SymbolQuote — Intraday tick event
 // ─────────────────────────────────────────────────────────────────────────
 const lifecycleSymbolQuote = {
   id: 'lc-symbol-quote',
   category: 'lifecycle',
   title: 'Lifecycle · SymbolQuote',
   subtitle:
-    'Tick gốc intraday · auto.qt/idxqt/futures → collector → Kafka → realtime-v2 · reCalculate enrich, rồi fanout sang 6 Redis keys + calExtraUpdate',
+    'Intraday source tick · auto.qt/idxqt/futures → collector → Kafka → realtime-v2 · reCalculate enriches, then fans out to 6 Redis keys + calExtraUpdate',
   accent: '#34d399',
   nodes: [
     {
@@ -673,54 +673,54 @@ const lifecycleSymbolQuote = {
       kind: 'source',
       layer: 'Lotte WS',
       title: 'auto.qt / auto.idxqt / futures quote',
-      subtitle: 'Tick feed từ Lotte',
+      subtitle: 'Tick feed from Lotte',
       position: { x: 0, y: ROW * 1.5 },
       inputs: [{ name: 'subscribe', type: 'WS', description: '' }],
       outputs: [{ name: 'raw text pipe-delimited', type: 'string', description: '' }],
       details:
-        'Collector subscribe 3 channel tách biệt:\n' +
-        '  • auto.qt.<code>   → tick cổ phiếu\n' +
-        '  • auto.idxqt.<code> → tick chỉ số\n' +
-        '  • futures quote feed → tick phái sinh\n\n' +
-        'Mỗi frame là 1 chuỗi phân tách bằng "|" theo spec Lotte, cần parse tay.',
+        'The collector subscribes to 3 separate channels:\n' +
+        '  • auto.qt.<code>   → stock ticks\n' +
+        '  • auto.idxqt.<code> → index ticks\n' +
+        '  • futures quote feed → derivatives ticks\n\n' +
+        'Each frame is a string delimited by "|" per the Lotte spec and must be parsed manually.',
     },
     {
       id: 'collector',
       kind: 'logic',
       layer: 'Collector',
       title: 'RealTimeConnectionHandler + ThreadHandler',
-      subtitle: 'Nhận → parse → enqueue',
+      subtitle: 'Receive → parse → enqueue',
       position: { x: COL, y: ROW * 1.5 },
       inputs: [{ name: 'receivePacket → handle()', type: 'call', description: '' }],
       outputs: [{ name: 'handleAutoData(Stock/Index/FuturesUpdateData)', type: 'call', description: '' }],
       details:
-        'Pipeline xử lý trong collector:\n' +
-        '  1. RealTimeConnectionHandler.receivePacket() nhận raw frame từ Lotte WS\n' +
-        '  2. ThreadHandler.handle() push vào thread pool theo partition để đảm bảo thứ tự theo code\n' +
-        '  3. parse(): tách các field theo vị trí\n' +
-        '  4. validate(): kiểm tra mã hợp lệ, sequence không tụt\n' +
-        '  5. formatTime(): đổi time HHmmss → milliseconds + date\n' +
-        '  6. formatRefCode(): với futures, set refCode (mã hợp đồng gốc)\n' +
-        '  7. Cuối cùng gọi handleAutoData() đúng loại (Stock/Index/Futures) để publish Kafka',
+        'Processing pipeline in the collector:\n' +
+        '  1. RealTimeConnectionHandler.receivePacket() receives raw frames from the Lotte WS\n' +
+        '  2. ThreadHandler.handle() pushes into the thread pool partitioned per code to keep ordering\n' +
+        '  3. parse(): split the fields by position\n' +
+        '  4. validate(): check the code is valid and sequence does not go backwards\n' +
+        '  5. formatTime(): convert time HHmmss → milliseconds + date\n' +
+        '  6. formatRefCode(): for futures, set refCode (underlying contract code)\n' +
+        '  7. Finally call the appropriate handleAutoData() (Stock/Index/Futures) to publish to Kafka',
     },
     {
       id: 'kafka',
       kind: 'kafka',
       layer: 'Kafka',
       title: 'quoteUpdate / quoteUpdateDR',
-      subtitle: 'Message<SymbolQuote> · 2 topic chia theo thị trường',
+      subtitle: 'Message<SymbolQuote> · 2 topics split by market',
       position: { x: COL * 2, y: ROW * 1.5 },
-      inputs: [{ name: 'producer collector — WsConnectionThread.run()', type: 'Kafka', description: 'sendMessageSafe, chọn topic theo type của object' }],
+      inputs: [{ name: 'producer collector — WsConnectionThread.run()', type: 'Kafka', description: 'sendMessageSafe, picks topic by object type' }],
       outputs: [{ name: 'realtime-v2 + ws-v2 consume', type: 'Kafka', description: '' }],
       details:
-        'Collector chia quote thành 2 topic theo loại thị trường:\n' +
-        '  • quoteUpdate     → Equity / Index / CW / ETF (cơ sở)\n' +
-        '  • quoteUpdateDR   → DR / Futures (phái sinh, VN30F*, VN30F2503, ...)\n\n' +
-        'DR = Derivatives. Hai topic cùng schema Message<SymbolQuote>, tách ra để:\n' +
-        '  • Partition riêng cho phái sinh (tick rate / pattern khác cơ sở)\n' +
-        '  • ws-v2 map sang 2 channel riêng: market.quote.{code} và market.quote.dr.{code}\n' +
-        '  • Consumer chỉ quan tâm 1 loại có thể subscribe 1 topic\n\n' +
-        'Key partition = code để các tick cùng mã về cùng partition (giữ thứ tự).',
+        'The collector splits quotes into 2 topics by market type:\n' +
+        '  • quoteUpdate     → Equity / Index / CW / ETF (cash market)\n' +
+        '  • quoteUpdateDR   → DR / Futures (derivatives, VN30F*, VN30F2503, ...)\n\n' +
+        'DR = Derivatives. Both topics share the Message<SymbolQuote> schema, split in order to:\n' +
+        '  • Have separate partitions for derivatives (different tick rate / pattern from cash)\n' +
+        '  • Let ws-v2 map to 2 separate channels: market.quote.{code} and market.quote.dr.{code}\n' +
+        '  • Consumers that only care about one type can subscribe to just one topic\n\n' +
+        'Partition key = code so ticks for the same symbol land on the same partition (preserving order).',
     },
     {
       id: 'handler',
@@ -732,8 +732,8 @@ const lifecycleSymbolQuote = {
       inputs: [{ name: 'rcv(symbolQuote)', type: 'enqueue', description: '' }],
       outputs: [{ name: 'QuoteService.updateQuote(symbolQuote)', type: 'call', description: '' }],
       details:
-        'QuoteUpdateHandler consume Kafka rồi đẩy vào MonitorService — 1 queue riêng theo code để các tick cùng mã được xử lý TUẦN TỰ (không race condition khi cập nhật statistic/daily/foreigner cùng lúc).\n\n' +
-        'MonitorService.handler() pop event → gọi QuoteService.updateQuote().',
+        'QuoteUpdateHandler consumes Kafka then pushes into MonitorService — a separate queue per code so ticks for the same symbol are processed SEQUENTIALLY (no race condition when updating statistic/daily/foreigner concurrently).\n\n' +
+        'MonitorService.handler() pops the event → calls QuoteService.updateQuote().',
     },
     {
       id: 'recalc',
@@ -749,25 +749,25 @@ const lifecycleSymbolQuote = {
         { name: '3) id = code + "_" + date + "_" + tradingVolume', type: 'set', description: '' },
         { name: '4) STOCK: foreignerMatchBuy/Sell + holdVolume/Ratio + buyAbleRatio', type: 'compute', description: '' },
         { name: '5) FUTURES: set refCode', type: 'set', description: '' },
-        { name: '6) IF high/low year đổi → publish calExtraUpdate', type: 'producer', description: '' },
+        { name: '6) IF high/low year changes → publish calExtraUpdate', type: 'producer', description: '' },
       ],
       details:
-        'Bước "gatekeeper" quan trọng — tick NÀO không qua bước này sẽ bị drop.\n\n' +
+        'Critical "gatekeeper" step — any tick not passing this step is dropped.\n\n' +
         'Logic:\n' +
-        '  1. Kiểm tra SymbolInfo của mã đã load chưa (nếu chưa → bỏ qua)\n' +
-        '  2. Kiểm tra tradingVolume tick mới PHẢI ≥ volume đã thấy (tránh wrong-order — Lotte đôi khi resend sai thứ tự)\n' +
-        '  3. Chuẩn hoá thời gian: tick.time (HHmmss) → milliseconds, set date, createdAt, updatedAt\n' +
-        '  4. Tạo id = code_date_tradingVolume (unique idempotent)\n' +
-        '  5. Với type=STOCK: compute thêm foreignerMatchBuy/SellVolume, holdVolume = foreignerTotalRoom − foreignerCurrentRoom, holdRatio = holdVolume / listedQty, buyAbleRatio = foreignerCurrentRoom / listedQty\n' +
-        '  6. Với type=FUTURES: gán refCode = mã hợp đồng gốc (VN30F2501 → VN30F)\n' +
-        '  7. Nếu tick.last tạo ĐỈNH/ĐÁY NĂM mới → publish thêm calExtraUpdate để cập nhật highYear/lowYear (handled by ExtraQuoteService)',
+        '  1. Check that SymbolInfo for the code is already loaded (if not → skip)\n' +
+        '  2. Check the new tick\'s tradingVolume MUST be ≥ the volume seen so far (avoid wrong-order — Lotte sometimes resends out of order)\n' +
+        '  3. Normalize time: tick.time (HHmmss) → milliseconds, set date, createdAt, updatedAt\n' +
+        '  4. Build id = code_date_tradingVolume (unique, idempotent)\n' +
+        '  5. For type=STOCK: also compute foreignerMatchBuy/SellVolume, holdVolume = foreignerTotalRoom − foreignerCurrentRoom, holdRatio = holdVolume / listedQty, buyAbleRatio = foreignerCurrentRoom / listedQty\n' +
+        '  6. For type=FUTURES: set refCode = underlying contract code (VN30F2501 → VN30F)\n' +
+        '  7. If tick.last creates a new yearly HIGH/LOW → also publish calExtraUpdate to update highYear/lowYear (handled by ExtraQuoteService)',
     },
     {
       id: 'update',
       kind: 'logic',
       layer: 'QuoteService',
       title: 'updateQuote() fanout',
-      subtitle: 'Phân phối tick đã enrich',
+      subtitle: 'Distribute the enriched tick',
       position: { x: COL * 5, y: ROW * 1.5 },
       inputs: [{ name: 'enriched SymbolQuote', type: 'object', description: '' }],
       outputs: [
@@ -780,14 +780,14 @@ const lifecycleSymbolQuote = {
         { name: '→ update realtime_listQuoteMeta_{code}', type: 'update', description: '' },
       ],
       details:
-        'Sau reCalculate() thành công, tick được "fanout" vào 7 hướng ghi trong cùng 1 transaction logic:\n\n' +
-        '  • SymbolStatistic: cộng vào bucket giá (non-INDEX)\n' +
-        '  • SymbolInfo: merge OHLC/volume/matchedBy qua ConvertUtils.updateByQuote\n' +
+        'After reCalculate() succeeds, the tick is "fanned out" into 7 write paths in the same logical transaction:\n\n' +
+        '  • SymbolStatistic: add to the price bucket (non-INDEX)\n' +
+        '  • SymbolInfo: merge OHLC/volume/matchedBy via ConvertUtils.updateByQuote\n' +
         '  • ForeignerDaily: foreignerDaily.updateByQuote()\n' +
         '  • SymbolDaily: ConvertUtils.updateDailyByQuote()\n' +
-        '  • SymbolQuoteMinute: create bar mới nếu sang phút, update high/low/close/volume nếu cùng phút\n' +
-        '  • realtime_listQuote_{code}: RPUSH tick enrich để query history\n' +
-        '  • realtime_listQuoteMeta_{code}: update partition meta cho paging',
+        '  • SymbolQuoteMinute: create a new bar if the minute advanced, update high/low/close/volume if same minute\n' +
+        '  • realtime_listQuote_{code}: RPUSH the enriched tick for history querying\n' +
+        '  • realtime_listQuoteMeta_{code}: update partition meta for paging',
     },
 
     // ─── Redis keys destination ──────────────────────────────────────
@@ -801,21 +801,21 @@ const lifecycleSymbolQuote = {
       inputs: [{ name: 'RPUSH', type: 'Redis', description: '' }],
       outputs: [{ name: 'query tick pagination', type: 'list', description: '' }],
       details:
-        'Redis list giữ TẤT CẢ tick enrich trong ngày của mã. Key có thể có hậu tố _partition khi list vượt ngưỡng — xem lifecycle ListQuoteMeta.\n\n' +
-        'Dùng cho querySymbolQuote/queryQuoteData (client scroll lịch sử khớp lệnh).',
+        'Redis list holding ALL enriched ticks of the symbol for the day. The key may have a _partition suffix when the list exceeds the threshold — see ListQuoteMeta lifecycle.\n\n' +
+        'Used by querySymbolQuote/queryQuoteData (client scrolling trade-match history).',
     },
     {
       id: 'r-meta',
       kind: 'redis',
       layer: 'Redis',
       title: 'realtime_listQuoteMeta_{code}',
-      subtitle: 'Partition meta encoded',
+      subtitle: 'Encoded partition meta',
       position: { x: COL * 6, y: ROW * 0.7 },
       inputs: [{ name: 'SET encoded', type: 'Redis', description: '' }],
-      outputs: [{ name: 'paging key cho query', type: 'string', description: '' }],
+      outputs: [{ name: 'paging key for queries', type: 'string', description: '' }],
       details:
-        'String encoded dạng "partition|fromVolume|toVolume|totalItems;..." — lưu danh sách partition và range volume của mỗi partition.\n\n' +
-        'Query chỉ cần đọc 1 key meta này để biết cần LRANGE list nào.',
+        'An encoded string of the form "partition|fromVolume|toVolume|totalItems;..." — stores the list of partitions and volume range for each partition.\n\n' +
+        'Queries need only read this single meta key to know which list to LRANGE.',
     },
     {
       id: 'r-info',
@@ -827,7 +827,7 @@ const lifecycleSymbolQuote = {
       inputs: [{ name: 'HSET', type: 'Redis', description: '' }],
       outputs: [{ name: 'priceBoard + ws snapshot', type: 'hash', description: '' }],
       details:
-        'Xem lifecycle SymbolInfo. Mỗi tick cập nhật: last, high/low, volume, value, matchedBy, foreigner*, quoteSequence++, updatedBy="SymbolQuote".',
+        'See SymbolInfo lifecycle. Each tick updates: last, high/low, volume, value, matchedBy, foreigner*, quoteSequence++, updatedBy="SymbolQuote".',
     },
     {
       id: 'r-foreigner',
@@ -839,47 +839,47 @@ const lifecycleSymbolQuote = {
       inputs: [{ name: 'HSET', type: 'Redis', description: '' }],
       outputs: [{ name: 'foreigner intraday', type: 'hash', description: '' }],
       details:
-        'State NĐTNN trong ngày cho mã. Mỗi tick → foreignerDaily.updateByQuote(quote) cộng dồn foreignerBuy/SellVolume/Value + update foreignerCurrentRoom.',
+        'Intraday foreign investor state for the symbol. Each tick → foreignerDaily.updateByQuote(quote) accumulates foreignerBuy/SellVolume/Value + updates foreignerCurrentRoom.',
     },
     {
       id: 'r-daily',
       kind: 'redis',
       layer: 'Redis',
       title: 'realtime_mapSymbolDaily[code]',
-      subtitle: 'Hash OHLCV ngày',
+      subtitle: 'Daily OHLCV hash',
       position: { x: COL * 6, y: ROW * 2.8 },
       inputs: [{ name: 'HSET', type: 'Redis', description: '' }],
-      outputs: [{ name: 'daily OHLCV hôm nay', type: 'hash', description: '' }],
+      outputs: [{ name: 'today\'s daily OHLCV', type: 'hash', description: '' }],
       details:
-        'Daily hôm nay được upsert từ mỗi tick qua ConvertUtils.updateDailyByQuote. Cuối giờ giao dịch, saveRedisToDatabase() bulk-write sang c_symbol_daily.',
+        'Today\'s daily is upserted on every tick via ConvertUtils.updateDailyByQuote. At end of trading, saveRedisToDatabase() bulk-writes to c_symbol_daily.',
     },
     {
       id: 'r-minute',
       kind: 'redis',
       layer: 'Redis',
       title: 'realtime_listQuoteMinute_{code}',
-      subtitle: 'List bars phút',
+      subtitle: 'Minute bars list',
       position: { x: COL * 6, y: ROW * 3.5 },
       inputs: [{ name: 'create/update', type: 'Redis', description: '' }],
       outputs: [{ name: 'minute chart', type: 'list', description: '' }],
       details:
-        'Mỗi tick kiểm tra minute bar hiện tại:\n' +
-        '  • Sang phút mới → RPUSH bar mới\n' +
-        '  • Cùng phút → LSET phần tử cuối với high/low/close/volume update\n' +
-        '  • Tick cũ hơn phút hiện tại → bỏ qua',
+        'Each tick checks the current minute bar:\n' +
+        '  • New minute → RPUSH a new bar\n' +
+        '  • Same minute → LSET the last element with high/low/close/volume update\n' +
+        '  • Tick older than current minute → skip',
     },
     {
       id: 'r-stat',
       kind: 'redis',
       layer: 'Redis',
       title: 'realtime_mapSymbolStatistic[code]',
-      subtitle: 'Hash aggregate theo giá',
+      subtitle: 'Hash aggregated by price',
       position: { x: COL * 6, y: ROW * 4.2 },
       inputs: [{ name: 'HSET (non-INDEX)', type: 'Redis', description: '' }],
       outputs: [{ name: 'matched aggregate', type: 'hash', description: '' }],
       details:
-        'Aggregate khớp lệnh theo từng mức giá. KHÔNG áp dụng cho INDEX (chỉ số không có khớp lệnh).\n\n' +
-        'Mỗi tick cộng vào bucket giá = tick.last: matchedVolume += tick.matchingVolume, matchedBuy/Sell tuỳ matchedBy.',
+        'Aggregates matched volume per price level. NOT applied to INDEX (indices have no trade match).\n\n' +
+        'Each tick adds to the price bucket = tick.last: matchedVolume += tick.matchingVolume, matchedBuy/Sell depending on matchedBy.',
     },
 
     // ─── Delivery ────────────────────────────────────────────────────
@@ -892,12 +892,12 @@ const lifecycleSymbolQuote = {
       position: { x: COL * 7.5, y: ROW * 1 },
       inputs: [{ name: 'LRANGE + meta', type: 'Redis', description: '' }],
       outputs: [
-        { name: 'querySymbolQuote / queryQuoteData', type: 'endpoint', description: 'paging theo volume/index' },
-        { name: 'querySymbolQuoteTick', type: 'endpoint', description: 'last N tick' },
-        { name: 'querySymbolTickSizeMatch', type: 'endpoint', description: 'thống kê matched theo tickSize' },
+        { name: 'querySymbolQuote / queryQuoteData', type: 'endpoint', description: 'paging by volume/index' },
+        { name: 'querySymbolQuoteTick', type: 'endpoint', description: 'last N ticks' },
+        { name: 'querySymbolTickSizeMatch', type: 'endpoint', description: 'matched statistics by tickSize' },
       ],
       details:
-        'Tất cả query tick của 1 mã hôm nay đều đi qua realtime_listQuote_* + meta. Không đọc Mongo vì enableSaveQuote=false.',
+        'All tick queries for today go through realtime_listQuote_* + meta. Mongo is not read because enableSaveQuote=false.',
     },
     {
       id: 'wsv2',
@@ -909,7 +909,7 @@ const lifecycleSymbolQuote = {
       inputs: [{ name: 'consume quoteUpdate', type: 'Kafka', description: 'direct' }],
       outputs: [{ name: 'publish market.quote.{code}', type: 'channel', description: '' }],
       details:
-        'ws-v2 consume Kafka quoteUpdate (không cần chờ realtime-v2 enrich), gọi convertDataPublishV2Quote() để rút gọn payload (rename field ngắn), rồi publish channel market.quote.{code} cho mọi subscriber.',
+        'ws-v2 consumes Kafka quoteUpdate directly (does not wait for realtime-v2 enrichment), calls convertDataPublishV2Quote() to compact the payload (short field names), then publishes the market.quote.{code} channel to all subscribers.',
     },
 
     // ─── Reset ────────────────────────────────────────────────────────
@@ -927,8 +927,8 @@ const lifecycleSymbolQuote = {
         { name: 'clear wrong-order quote', type: 'del', description: '' },
       ],
       details:
-        'Chạy 00:55 MON-FRI — xoá toàn bộ tick + meta của ngày trước để dọn chỗ cho ngày mới.\n\n' +
-        'Lưu ý: enableSaveQuote=false → không có bước persist tick sang Mongo trước khi xoá. Nghĩa là sau 00:55 tick hôm trước biến mất hoàn toàn.',
+        'Runs 00:55 MON-FRI — deletes all previous-day ticks + meta to make room for the new day.\n\n' +
+        'Note: enableSaveQuote=false → no persist step to Mongo before deletion. That means after 00:55 previous-day ticks are completely gone.',
     },
   ],
   edges: [
@@ -961,7 +961,7 @@ const lifecycleListQuoteMeta = {
   category: 'lifecycle',
   title: 'Lifecycle · ListQuoteMeta / QuotePartition',
   subtitle:
-    'Metadata kỹ thuật để paginate tick list lớn · sinh bởi QuoteService.addSymbolQuote · tiêu thụ bởi querySymbolQuote/queryQuoteData',
+    'Technical metadata for paginating large tick lists · produced by QuoteService.addSymbolQuote · consumed by querySymbolQuote/queryQuoteData',
   accent: '#fbbf24',
   nodes: [
     {
@@ -973,17 +973,17 @@ const lifecycleListQuoteMeta = {
       position: { x: 0, y: ROW },
       inputs: [{ name: 'SymbolQuote (validated)', type: 'object', description: '' }],
       outputs: [
-        { name: 'append tick vào default / overflow partition', type: 'RPUSH', description: '' },
-        { name: 'cập nhật ListQuoteMeta { partitions[] }', type: 'update', description: '' },
+        { name: 'append tick to default / overflow partition', type: 'RPUSH', description: '' },
+        { name: 'update ListQuoteMeta { partitions[] }', type: 'update', description: '' },
       ],
       details:
-        'Được gọi ở bước cuối của updateQuote(), chịu trách nhiệm ghi tick vào đúng partition:\n\n' +
-        '  1. Đọc ListQuoteMeta hiện tại (nếu chưa có → tạo default partition=-1 với fromVolume=0)\n' +
-        '  2. Xác định partition đang active (cái cuối)\n' +
-        '  3. Nếu len(partition) < LIMIT → RPUSH vào partition hiện tại\n' +
-        '  4. Nếu len(partition) ≥ LIMIT → tạo overflow partition mới với fromVolume = tradingVolume của tick này\n' +
-        '  5. Cập nhật partitions[] với totalItems mới + lưu meta\n\n' +
-        'Mục tiêu: giới hạn kích thước mỗi Redis list để LRANGE không bị chậm.',
+        'Called at the final step of updateQuote(), responsible for writing the tick to the correct partition:\n\n' +
+        '  1. Read current ListQuoteMeta (if missing → create default partition=-1 with fromVolume=0)\n' +
+        '  2. Determine the active (last) partition\n' +
+        '  3. If len(partition) < LIMIT → RPUSH into the current partition\n' +
+        '  4. If len(partition) ≥ LIMIT → create a new overflow partition with fromVolume = tick.tradingVolume\n' +
+        '  5. Update partitions[] with the new totalItems + persist meta\n\n' +
+        'Goal: bound the size of each Redis list so LRANGE stays fast.',
     },
     {
       id: 'r-meta',
@@ -993,11 +993,11 @@ const lifecycleListQuoteMeta = {
       subtitle: 'SET encoded string',
       position: { x: COL * 1.5, y: ROW * 0.5 },
       inputs: [{ name: 'SET', type: 'Redis', description: '' }],
-      outputs: [{ name: 'encoded format: partition|fromVolume|toVolume|totalItems;...', type: 'string', description: 'VD: "-1|0|50000000|8928"' }],
+      outputs: [{ name: 'encoded format: partition|fromVolume|toVolume|totalItems;...', type: 'string', description: 'e.g. "-1|0|50000000|8928"' }],
       details:
-        'Dùng SET (không HSET) — 1 key = 1 string encoded để đọc nhanh bằng GET duy nhất.\n\n' +
-        'Parse ở phía client/service: split(";") → mỗi entry split("|") thành { partition, fromVolume, toVolume, totalItems }.\n\n' +
-        'partition = -1 là "default", partition số dương là overflow.',
+        'Uses SET (not HSET) — 1 key = 1 encoded string readable with a single GET.\n\n' +
+        'Parsed on the client/service side: split(";") → each entry split("|") into { partition, fromVolume, toVolume, totalItems }.\n\n' +
+        'partition = -1 is the "default", positive numbers are overflow.',
     },
     {
       id: 'r-tick',
@@ -1007,14 +1007,14 @@ const lifecycleListQuoteMeta = {
       subtitle: 'List<SymbolQuote>',
       position: { x: COL * 1.5, y: ROW * 1.5 },
       inputs: [{ name: 'RPUSH per partition', type: 'Redis', description: '' }],
-      outputs: [{ name: 'LRANGE theo partition', type: 'list', description: '' }],
+      outputs: [{ name: 'LRANGE per partition', type: 'list', description: '' }],
       details:
         'Key naming:\n' +
         '  • realtime_listQuote_SHB      → default partition (-1)\n' +
         '  • realtime_listQuote_SHB_1    → overflow partition #1\n' +
         '  • realtime_listQuote_SHB_2    → overflow partition #2\n' +
         '  ...\n\n' +
-        'Mỗi element là 1 JSON SymbolQuote enrich đầy đủ.',
+        'Each element is a fully enriched SymbolQuote JSON.',
     },
 
     {
@@ -1022,39 +1022,39 @@ const lifecycleListQuoteMeta = {
       kind: 'api',
       layer: 'Query',
       title: 'querySymbolQuote()',
-      subtitle: 'Paging theo lastTradingVolume',
+      subtitle: 'Paging by lastTradingVolume',
       position: { x: COL * 3, y: 0 },
       inputs: [
         { name: 'symbol', type: 'string', description: '' },
         { name: 'lastTradingVolume', type: 'long', description: '' },
       ],
       outputs: [
-        { name: '1) đọc meta', type: 'GET', description: '' },
-        { name: '2) nếu chưa có → pseudo default partition -1', type: 'fallback', description: '' },
-        { name: '3) chọn partition theo fromVolume/toVolume', type: 'lookup', description: '' },
+        { name: '1) read meta', type: 'GET', description: '' },
+        { name: '2) if missing → pseudo default partition -1', type: 'fallback', description: '' },
+        { name: '3) pick partition by fromVolume/toVolume', type: 'lookup', description: '' },
         { name: '4) LRANGE realtime_listQuote_{symbol}[_p]', type: 'Redis', description: '' },
-        { name: '5) filter theo lastTradingVolume', type: 'compute', description: '' },
-        { name: '6) trả SymbolQuoteResponse[]', type: 'response', description: '' },
+        { name: '5) filter by lastTradingVolume', type: 'compute', description: '' },
+        { name: '6) return SymbolQuoteResponse[]', type: 'response', description: '' },
       ],
       details:
-        'Use-case chính: client scroll tick feed — mỗi lần gọi truyền lastTradingVolume = volume của tick cuối đã hiển thị, service trả các tick có volume > giá trị đó.\n\n' +
-        'Nhờ meta, service không cần LRANGE toàn bộ list — chỉ LRANGE đúng partition chứa range volume cần.',
+        'Main use-case: client scrolls the tick feed — each call passes lastTradingVolume = the volume of the last tick shown; service returns ticks with volume > that value.\n\n' +
+        'Thanks to meta, the service does not LRANGE the entire list — only the partition that contains the required volume range.',
     },
     {
       id: 'q-data',
       kind: 'api',
       layer: 'Query',
       title: 'queryQuoteData()',
-      subtitle: 'Paging theo lastIndex',
+      subtitle: 'Paging by lastIndex',
       position: { x: COL * 3, y: ROW * 1.4 },
       inputs: [
         { name: 'symbol', type: 'string', description: '' },
         { name: 'lastIndex', type: 'int', description: '' },
       ],
-      outputs: [{ name: 'Cùng meta, paginate theo index thay vì volume', type: 'compute', description: '' }],
+      outputs: [{ name: 'Same meta, paginate by index instead of volume', type: 'compute', description: '' }],
       details:
-        'Biến thể của querySymbolQuote cho trường hợp client paginate theo INDEX (số thứ tự tick) thay vì volume.\n\n' +
-        'Cùng meta nhưng cộng dồn totalItems để tính được lastIndex thuộc partition nào.',
+        'Variant of querySymbolQuote for clients paginating by INDEX (tick ordinal) instead of volume.\n\n' +
+        'Uses the same meta but accumulates totalItems to determine which partition contains lastIndex.',
     },
 
     {
@@ -1062,12 +1062,12 @@ const lifecycleListQuoteMeta = {
       kind: 'schedule',
       layer: 'Cron',
       title: 'removeAutoData() 00:55',
-      subtitle: 'Clear meta + tick',
+      subtitle: 'Clear meta + ticks',
       position: { x: COL * 1.5, y: ROW * 2.8 },
       inputs: [{ name: '@Scheduled', type: 'cron', description: '' }],
       outputs: [{ name: 'clear realtime_listQuoteMeta_*', type: 'del', description: '' }],
       details:
-        'Xoá toàn bộ meta + tick list để ngày mới bắt đầu sạch. Nếu không xoá meta trong khi có tick ngày mới → paging sẽ sai hoàn toàn.',
+        'Delete all meta + tick lists so the new day starts clean. If meta is not cleared while new-day ticks arrive → paging becomes completely wrong.',
     },
   ],
   edges: [
@@ -1090,7 +1090,7 @@ const lifecycleSymbolQuoteMinute = {
   category: 'lifecycle',
   title: 'Lifecycle · SymbolQuoteMinute',
   subtitle:
-    'Nến phút — không đến từ feed trực tiếp mà được dẫn xuất từ SymbolQuote trong QuoteService.updateQuote',
+    'Minute bars — not from a direct feed but derived from SymbolQuote inside QuoteService.updateQuote',
   accent: '#a78bfa',
   nodes: [
     {
@@ -1098,39 +1098,39 @@ const lifecycleSymbolQuoteMinute = {
       kind: 'logic',
       layer: 'Derived from Quote',
       title: 'QuoteService.updateQuote()',
-      subtitle: 'Mỗi tick mới → evaluate minute bar',
+      subtitle: 'On each new tick → evaluate the minute bar',
       position: { x: 0, y: ROW },
       inputs: [{ name: 'SymbolQuote (enriched)', type: 'object', description: '' }],
-      outputs: [{ name: 'lấy current minute bar từ cache/Redis', type: 'read', description: '' }],
+      outputs: [{ name: 'fetch current minute bar from cache/Redis', type: 'read', description: '' }],
       details:
-        'Khi có tick mới, service đọc minute bar ĐANG MỞ (phần tử cuối của realtime_listQuoteMinute_{code}) để quyết định create/update/skip.\n\n' +
-        'Không có feed riêng cho minute — toàn bộ nến phút là derived state từ SymbolQuote.',
+        'When a new tick arrives, the service reads the currently OPEN minute bar (last element of realtime_listQuoteMinute_{code}) to decide create/update/skip.\n\n' +
+        'There is no dedicated feed for minute bars — all minute bars are derived state from SymbolQuote.',
     },
     {
       id: 'decide',
       kind: 'logic',
       layer: 'Decision',
       title: 'Evaluate minute bar',
-      subtitle: '3 nhánh dựa trên thời gian tick',
+      subtitle: '3 branches based on tick time',
       position: { x: COL, y: ROW },
       inputs: [{ name: 'currentMinute + quote', type: 'object', description: '' }],
       outputs: [
-        { name: 'currentMinute==null hoặc sang phút mới → CREATE', type: 'branch', description: 'từ quote' },
-        { name: 'cùng phút → UPDATE high/low/close/volume/value', type: 'branch', description: '' },
-        { name: 'quote cũ hơn phút hiện tại → SKIP', type: 'branch', description: '' },
+        { name: 'currentMinute==null or new minute → CREATE', type: 'branch', description: 'from quote' },
+        { name: 'same minute → UPDATE high/low/close/volume/value', type: 'branch', description: '' },
+        { name: 'quote older than current minute → SKIP', type: 'branch', description: '' },
       ],
       details:
-        'Logic so sánh tick.time (HHmm) vs currentMinute.time:\n\n' +
-        '  • CREATE: khi chưa có bar nào HOẶC tick.time > currentMinute.time\n' +
+        'Logic compares tick.time (HHmm) vs currentMinute.time:\n\n' +
+        '  • CREATE: when no bar exists OR tick.time > currentMinute.time\n' +
         '    – open = tick.last, high = tick.last, low = tick.last, close = tick.last\n' +
         '    – volume = tick.matchingVolume, value = tick.matchingValue\n' +
-        '    – periodTradingVolume = delta volume so với minute trước\n\n' +
-        '  • UPDATE: khi tick.time == currentMinute.time\n' +
+        '    – periodTradingVolume = delta volume vs previous minute\n\n' +
+        '  • UPDATE: when tick.time == currentMinute.time\n' +
         '    – high = max(high, tick.last)\n' +
         '    – low = min(low, tick.last)\n' +
-        '    – close = tick.last (luôn đè)\n' +
-        '    – volume/value cộng dồn\n\n' +
-        '  • SKIP: tick.time < currentMinute.time (tick cũ, có thể do resend Lotte) → bỏ qua để tránh ghi đè bar đã đóng.',
+        '    – close = tick.last (always overwrite)\n' +
+        '    – volume/value accumulate\n\n' +
+        '  • SKIP: tick.time < currentMinute.time (old tick, likely a Lotte resend) → skip to avoid overwriting a closed bar.',
     },
     {
       id: 'r-minute',
@@ -1139,13 +1139,13 @@ const lifecycleSymbolQuoteMinute = {
       title: 'realtime_listQuoteMinute_{code}',
       subtitle: 'List<SymbolQuoteMinute>',
       position: { x: COL * 2.2, y: ROW },
-      inputs: [{ name: 'RPUSH hoặc LSET last', type: 'Redis', description: '' }],
-      outputs: [{ name: 'minute bars ordered', type: 'list', description: '' }],
+      inputs: [{ name: 'RPUSH or LSET last', type: 'Redis', description: '' }],
+      outputs: [{ name: 'ordered minute bars', type: 'list', description: '' }],
       details:
-        'Mỗi element SymbolQuoteMinute:\n' +
+        'Each SymbolQuoteMinute element:\n' +
         '  { code, time (HHmmss), milliseconds, open, high, low, last, tradingVolume, tradingValue, periodTradingVolume, date }\n\n' +
-        'periodTradingVolume = delta volume của phút này (không phải cộng dồn). Dùng để vẽ cột volume bên dưới nến.\n' +
-        'tradingVolume = cộng dồn volume từ đầu ngày.',
+        'periodTradingVolume = delta volume for this minute (not accumulated). Used to draw the volume column below the candle.\n' +
+        'tradingVolume = accumulated volume since start of day.',
     },
     {
       id: 'q',
@@ -1157,25 +1157,25 @@ const lifecycleSymbolQuoteMinute = {
       inputs: [{ name: 'LRANGE realtime_listQuoteMinute_{code}', type: 'Redis', description: '' }],
       outputs: [
         { name: 'querySymbolQuoteMinutes', type: 'endpoint', description: 'raw bars' },
-        { name: 'queryMinuteChartBySymbol', type: 'endpoint', description: 'cho minute chart UI' },
-        { name: 'queryTradingViewHistory intraday', type: 'endpoint', description: 'UDF cho TradingView' },
+        { name: 'queryMinuteChartBySymbol', type: 'endpoint', description: 'for minute chart UI' },
+        { name: 'queryTradingViewHistory intraday', type: 'endpoint', description: 'UDF for TradingView' },
       ],
       details:
-        'Chỉ đọc Redis — KHÔNG có Mongo fallback cho minute bar vì persist bị disable (xem cron-persist).\n\n' +
-        'TradingView history endpoint chỉ trả minute bars trong phạm vi hôm nay; khung thời gian > 1 ngày chuyển qua SymbolDaily.',
+        'Reads from Redis only — NO Mongo fallback for minute bars because persistence is disabled (see cron-persist).\n\n' +
+        'The TradingView history endpoint only returns minute bars within today; timeframes > 1 day switch to SymbolDaily.',
     },
     {
       id: 'wsv2',
       kind: 'ws',
       layer: 'Delivery',
       title: 'ws-v2 broadcast',
-      subtitle: 'Không có channel riêng',
+      subtitle: 'No dedicated channel',
       position: { x: COL * 3.5, y: ROW * 1.4 },
-      inputs: [{ name: 'quoteUpdate parser compute minute', type: 'Kafka', description: '' }],
-      outputs: [{ name: 'không có channel riêng cho minute', type: 'note', description: 'Client tự aggregate từ market.quote.{code}' }],
+      inputs: [{ name: 'quoteUpdate parser computes minute', type: 'Kafka', description: '' }],
+      outputs: [{ name: 'no dedicated channel for minute', type: 'note', description: 'Client aggregates from market.quote.{code}' }],
       details:
-        'ws-v2 KHÔNG publish channel riêng cho minute bar — client subscribe market.quote.{code} rồi tự aggregate thành minute trên UI để realtime với độ trễ thấp nhất.\n\n' +
-        'Minute bar từ Redis chỉ phục vụ load history khi mở chart.',
+        'ws-v2 does NOT publish a dedicated channel for minute bars — the client subscribes to market.quote.{code} and aggregates into minutes on the UI for the lowest realtime latency.\n\n' +
+        'Redis minute bars only serve history load when the chart opens.',
     },
     {
       id: 'cron-reset',
@@ -1187,20 +1187,20 @@ const lifecycleSymbolQuoteMinute = {
       inputs: [{ name: '@Scheduled', type: 'cron', description: '' }],
       outputs: [{ name: 'clear realtime_listQuoteMinute_*', type: 'del', description: '' }],
       details:
-        'Xoá toàn bộ minute bars của ngày trước. Cùng với tick list, đây là các data intraday không giữ qua đêm.',
+        'Deletes all previous-day minute bars. Along with the tick list, these are intraday data not kept overnight.',
     },
     {
       id: 'cron-persist',
       kind: 'schedule',
       layer: 'Cron',
       title: 'saveRedisToDatabase()',
-      subtitle: 'Code path có nhưng disabled',
+      subtitle: 'Code path exists but disabled',
       position: { x: COL * 2.2, y: ROW * 3.2 },
       inputs: [{ name: '@Scheduled', type: 'cron', description: '' }],
       outputs: [{ name: 'OFF runtime (enableSaveQuoteMinute=false)', type: 'skip', description: '' }],
       details:
-        'Trong code có branch persist minute → c_symbol_quote_minute, nhưng runtime hiện tại config enableSaveQuoteMinute=false nên bị skip.\n\n' +
-        'Hệ quả: minute bar hôm nay chỉ tồn tại trong Redis, KHÔNG tra được minute bar các ngày trước qua DB — muốn lịch sử minute phải dùng TradingView aggregated từ SymbolDaily hoặc request Lotte.',
+        'The code contains a persist branch for minute → c_symbol_quote_minute, but the current runtime config enableSaveQuoteMinute=false so it is skipped.\n\n' +
+        'Consequence: today\'s minute bars exist only in Redis; minute bars for prior days cannot be retrieved from the DB — historical minute data must be aggregated from SymbolDaily via TradingView or requested from Lotte.',
     },
   ],
   edges: [
@@ -1220,7 +1220,7 @@ const lifecycleSymbolStatistic = {
   category: 'lifecycle',
   title: 'Lifecycle · SymbolStatistic',
   subtitle:
-    'Aggregate intraday theo từng mức giá · update mỗi tick (non-INDEX) · publish statisticUpdate với 1 price entry',
+    'Intraday aggregate by price level · updated on every tick (non-INDEX) · publishes statisticUpdate with 1 price entry',
   accent: '#f472b6',
   nodes: [
     {
@@ -1231,46 +1231,46 @@ const lifecycleSymbolStatistic = {
       subtitle: 'Gate: type != INDEX',
       position: { x: 0, y: ROW },
       inputs: [{ name: 'SymbolQuote', type: 'object', description: '' }],
-      outputs: [{ name: 'lookup statistic hiện tại cho code', type: 'read', description: '' }],
+      outputs: [{ name: 'lookup current statistic for code', type: 'read', description: '' }],
       details:
-        'Trước khi tính statistic, service check type của mã:\n' +
-        '  • type ∈ { STOCK, CW, ETF, FUTURES } → thực hiện aggregate\n' +
-        '  • type == INDEX → SKIP (chỉ số không có khớp lệnh theo giá)\n\n' +
-        'Nếu qualified, đọc realtime_mapSymbolStatistic[code] hiện tại từ cache/Redis.',
+        'Before computing statistics, the service checks the symbol type:\n' +
+        '  • type ∈ { STOCK, CW, ETF, FUTURES } → perform aggregation\n' +
+        '  • type == INDEX → SKIP (indices have no price-level trade matching)\n\n' +
+        'If qualified, read current realtime_mapSymbolStatistic[code] from cache/Redis.',
     },
     {
       id: 'bucket',
       kind: 'logic',
       layer: 'Compute',
       title: 'Price bucket merge',
-      subtitle: 'Cộng dồn vào bucket = quote.last',
+      subtitle: 'Accumulate into bucket = quote.last',
       position: { x: COL, y: ROW },
       inputs: [{ name: 'current statistic + quote', type: 'object', description: '' }],
       outputs: [
-        { name: 'cộng matchedVolume', type: 'compute', description: '' },
+        { name: 'add matchedVolume', type: 'compute', description: '' },
         { name: 'matchedBy=BID → matchedBuyVolume', type: 'compute', description: '' },
         { name: 'matchedBy=ASK → matchedSellVolume', type: 'compute', description: '' },
         { name: 'matchedBy=null → matchedUnknownVolume', type: 'compute', description: '' },
-        { name: 'tính lại matchedRatio / buyRatio / sellRatio', type: 'compute', description: '' },
-        { name: 'cập nhật totalBuyVolume / totalSellVolume', type: 'compute', description: '' },
+        { name: 'recompute matchedRatio / buyRatio / sellRatio', type: 'compute', description: '' },
+        { name: 'update totalBuyVolume / totalSellVolume', type: 'compute', description: '' },
       ],
       details:
-        'Logic bucket (bucket được định danh bằng price = tick.last):\n\n' +
-        '  1. Tìm bucket có price == tick.last; nếu chưa có → tạo mới\n' +
+        'Bucket logic (bucket is identified by price = tick.last):\n\n' +
+        '  1. Find bucket with price == tick.last; if none → create new\n' +
         '  2. bucket.matchedVolume += tick.matchingVolume\n' +
-        '  3. Phân loại theo matchedBy:\n' +
+        '  3. Classify by matchedBy:\n' +
         '     – BID → matchedBuyVolume += matchingVolume\n' +
         '     – ASK → matchedSellVolume += matchingVolume\n' +
-        '     – null → matchedUnknownVolume += matchingVolume (khi Lotte không xác định)\n' +
-        '  4. Recompute ratio trong bucket: matchedRaito/buyRaito/sellRaito = volume/matchedVolume\n' +
-        '  5. Aggregate mức toàn mã: totalBuyVolume = sum(matchedBuyVolume over all buckets), tương tự totalSellVolume',
+        '     – null → matchedUnknownVolume += matchingVolume (when Lotte does not specify)\n' +
+        '  4. Recompute ratios inside the bucket: matchedRaito/buyRaito/sellRaito = volume/matchedVolume\n' +
+        '  5. Aggregate at the symbol level: totalBuyVolume = sum(matchedBuyVolume over all buckets), same for totalSellVolume',
     },
     {
       id: 'r',
       kind: 'redis',
       layer: 'Redis output',
       title: 'realtime_mapSymbolStatistic[code]',
-      subtitle: 'Hash — snapshot aggregate',
+      subtitle: 'Hash — aggregate snapshot',
       position: { x: COL * 2.2, y: ROW },
       inputs: [{ name: 'HSET', type: 'Redis', description: '' }],
       outputs: [{ name: 'statistic snapshot', type: 'hash', description: '' }],
@@ -1286,7 +1286,7 @@ const lifecycleSymbolStatistic = {
         '      matchedSellVolume, sellRaito }, ...\n' +
         '  ]\n' +
         '}\n\n' +
-        'Lưu ý Raito (typo lịch sử), không phải Ratio.',
+        'Note: Raito is a legacy typo (should be Ratio).',
     },
     {
       id: 'kafka-stat',
@@ -1295,11 +1295,11 @@ const lifecycleSymbolStatistic = {
       title: 'topic statisticUpdate',
       subtitle: 'Delta event — 1 price entry',
       position: { x: COL * 2.2, y: ROW * 2 },
-      inputs: [{ name: 'publish delta 1 price entry', type: 'Kafka', description: '' }],
+      inputs: [{ name: 'publish delta of 1 price entry', type: 'Kafka', description: '' }],
       outputs: [{ name: 'ws-v2 consumer', type: 'Kafka', description: '' }],
       details:
-        'Thay vì publish lại toàn bộ statistic (có thể vài chục bucket giá), service chỉ publish bucket vừa thay đổi (1 price entry) qua statisticUpdate.\n\n' +
-        'ws-v2 merge delta này vào payload trước khi push client để giảm băng thông.',
+        'Instead of publishing the whole statistic (could be dozens of price buckets), the service publishes only the bucket that just changed (1 price entry) via statisticUpdate.\n\n' +
+        'ws-v2 merges this delta into the payload before pushing to the client to reduce bandwidth.',
     },
     {
       id: 'q',
@@ -1311,7 +1311,7 @@ const lifecycleSymbolStatistic = {
       inputs: [{ name: 'HGET realtime_mapSymbolStatistic', type: 'Redis', description: '' }],
       outputs: [{ name: 'querySymbolStatistics', type: 'endpoint', description: '' }],
       details:
-        'Client load modal "Thống kê khớp lệnh theo giá" — HGET 1 key lấy toàn bộ snapshot.',
+        'Client loads the "Matched statistics by price" modal — a single HGET fetches the whole snapshot.',
     },
     {
       id: 'wsv2',
@@ -1323,7 +1323,7 @@ const lifecycleSymbolStatistic = {
       inputs: [{ name: 'consume statisticUpdate', type: 'Kafka', description: '' }],
       outputs: [{ name: 'publish market.statistic.{code}', type: 'channel', description: '' }],
       details:
-        'Client subscribe channel nhận delta realtime để update bucket đang nhìn mà không reload cả modal.',
+        'Client subscribes to this channel to receive realtime deltas to update the currently viewed bucket without reloading the entire modal.',
     },
     {
       id: 'cron-reset',
@@ -1335,7 +1335,7 @@ const lifecycleSymbolStatistic = {
       inputs: [{ name: '@Scheduled', type: 'cron', description: '' }],
       outputs: [{ name: 'clear market statistic', type: 'del', description: '' }],
       details:
-        'Xoá realtime_mapSymbolStatistic để ngày mới bắt đầu với statistic rỗng. Không persist sang Mongo.',
+        'Delete realtime_mapSymbolStatistic so the new day starts with empty statistics. Not persisted to Mongo.',
     },
   ],
   edges: [
@@ -1356,7 +1356,7 @@ const lifecycleBidOffer = {
   category: 'lifecycle',
   title: 'Lifecycle · BidOffer',
   subtitle:
-    'Sổ lệnh 3 bước giá · auto.bo → Kafka → BidOfferService.updateBidOffer → merge vào SymbolInfo · history RUNTIME OFF',
+    'Order book top 3 levels · auto.bo → Kafka → BidOfferService.updateBidOffer → merge into SymbolInfo · history RUNTIME OFF',
   accent: '#a855f7',
   nodes: [
     {
@@ -1369,7 +1369,7 @@ const lifecycleBidOffer = {
       inputs: [{ name: 'subscribe', type: 'WS', description: '' }],
       outputs: [{ name: 'raw bid/ask line', type: 'string', description: '' }],
       details:
-        'Channel Lotte cho mỗi mã, push mỗi khi top-3 order book thay đổi. Format pipe-delimited chứa 3 bid (price/volume) + 3 ask (price/volume) + session + totals.',
+        'Lotte channel per symbol, pushed whenever the top-3 order book changes. Pipe-delimited format with 3 bid (price/volume) + 3 ask (price/volume) + session + totals.',
     },
     {
       id: 'collector',
@@ -1383,8 +1383,8 @@ const lifecycleBidOffer = {
       details:
         'Pipeline:\n' +
         '  1. Parse parts[] → build BidOfferData { code, bidPrice1/2/3, bidVolume1/2/3, askPrice1/2/3, askVolume1/2/3, totalBidVolume, totalAskVolume, session, time }\n' +
-        '  2. Nếu mã là futures → build FuturesBidOfferData (kế thừa thêm expectedChange, expectedRate so với vn30)\n' +
-        '  3. Trong phiên ATO/ATC: handleAutoData() compute expectedPrice/Change/Rate dựa trên khớp lệnh dự kiến\n' +
+        '  2. If the symbol is futures → build FuturesBidOfferData (adds expectedChange, expectedRate vs vn30)\n' +
+        '  3. In ATO/ATC sessions: handleAutoData() computes expectedPrice/Change/Rate based on projected match\n' +
         '  4. sendMessageSafe("bidOfferUpdate", bidOffer)',
     },
     {
@@ -1392,12 +1392,12 @@ const lifecycleBidOffer = {
       kind: 'kafka',
       layer: 'Kafka',
       title: 'bidOfferUpdate',
-      subtitle: 'Topic chính',
+      subtitle: 'Main topic',
       position: { x: COL * 2, y: ROW },
       inputs: [{ name: 'sendMessageSafe', type: 'Kafka', description: '' }],
       outputs: [{ name: 'realtime-v2 + ws-v2', type: 'Kafka', description: '' }],
       details:
-        'Partition key = code. ws-v2 consume trực tiếp để broadcast độ trễ thấp, realtime-v2 consume để merge vào SymbolInfo.',
+        'Partition key = code. ws-v2 consumes directly for low-latency broadcast; realtime-v2 consumes to merge into SymbolInfo.',
     },
     {
       id: 'handler',
@@ -1409,52 +1409,52 @@ const lifecycleBidOffer = {
       inputs: [{ name: 'Message<BidOffer>', type: 'Kafka', description: '' }],
       outputs: [{ name: 'BidOfferService.updateBidOffer()', type: 'call', description: '' }],
       details:
-        'Handler đẩy event vào MonitorService theo partition code — đảm bảo các bidoffer cùng mã không race với quote cùng mã (cùng queue).',
+        'The handler pushes events into MonitorService partitioned by code — ensuring bidoffer events for the same symbol do not race with quote events for the same symbol (shared queue).',
     },
     {
       id: 'service',
       kind: 'logic',
       layer: 'BidOfferService',
       title: 'updateBidOffer(bidOffer)',
-      subtitle: '8 bước chính',
+      subtitle: '8 main steps',
       position: { x: COL * 4, y: ROW },
       inputs: [{ name: 'BidOffer', type: 'object', description: '' }],
       outputs: [
         { name: '1) set createdAt / updatedAt', type: 'set', description: '' },
-        { name: '2) load SymbolInfo hiện tại', type: 'read', description: '' },
+        { name: '2) load current SymbolInfo', type: 'read', description: '' },
         { name: '3) ConvertUtils.updateByBidOffer()', type: 'merge', description: '' },
-        { name: '4) SymbolInfo.bidOfferList = top book mới', type: 'set', description: '' },
-        { name: '5) tăng bidAskSequence', type: 'counter', description: '' },
+        { name: '4) SymbolInfo.bidOfferList = new top book', type: 'set', description: '' },
+        { name: '5) increment bidAskSequence', type: 'counter', description: '' },
         { name: '6) HSET realtime_mapSymbolInfo[code]', type: 'Redis', description: '' },
         { name: '7) set bidOffer.id', type: 'set', description: '' },
         { name: '8) IF enableSaveBidOffer=true → append realtime_listBidOffer_{code}', type: 'branch', description: 'RUNTIME OFF' },
       ],
       details:
-        'Chi tiết từng bước:\n\n' +
+        'Step-by-step:\n\n' +
         '  1. bidOffer.createdAt / updatedAt = now\n' +
-        '  2. HGET realtime_mapSymbolInfo[code] → SymbolInfo hiện tại (nếu miss → skip toàn bộ update)\n' +
-        '  3. ConvertUtils.updateByBidOffer(symbolInfo, bidOffer) merge:\n' +
+        '  2. HGET realtime_mapSymbolInfo[code] → current SymbolInfo (on miss → skip the entire update)\n' +
+        '  3. ConvertUtils.updateByBidOffer(symbolInfo, bidOffer) merges:\n' +
         '     – bidOfferList = [ask3, ask2, ask1, bid1, bid2, bid3]\n' +
         '     – totalBidVolume, totalAskVolume\n' +
-        '     – session (khi BidOffer mang cờ phiên)\n' +
+        '     – session (when BidOffer carries a session flag)\n' +
         '     – expectedPrice/expectedChange/expectedRate (ATO/ATC)\n' +
-        '  4. Ghi đè bidOfferList (không cộng dồn, thay top book)\n' +
+        '  4. Overwrite bidOfferList (does not accumulate, replaces top book)\n' +
         '  5. symbolInfo.bidAskSequence++\n' +
-        '  6. HSET realtime_mapSymbolInfo[code] với SymbolInfo đã merge\n' +
-        '  7. bidOffer.id = code_yyyyMMddHHmmss_bidAskSequence (dùng khi persist)\n' +
-        '  8. Feature flag enableSaveBidOffer (ENV) — RUNTIME hiện OFF → bỏ qua RPUSH realtime_listBidOffer_*',
+        '  6. HSET realtime_mapSymbolInfo[code] with the merged SymbolInfo\n' +
+        '  7. bidOffer.id = code_yyyyMMddHHmmss_bidAskSequence (used when persisting)\n' +
+        '  8. Feature flag enableSaveBidOffer (ENV) — currently RUNTIME OFF → skip RPUSH realtime_listBidOffer_*',
     },
     {
       id: 'r-info',
       kind: 'redis',
       layer: 'Redis (active)',
       title: 'realtime_mapSymbolInfo[code]',
-      subtitle: 'Top book duy nhất',
+      subtitle: 'The only top book',
       position: { x: COL * 5.5, y: 0 },
       inputs: [{ name: 'HSET', type: 'Redis', description: '' }],
-      outputs: [{ name: 'chỗ DUY NHẤT có bid/offer main session', type: 'hash', description: '' }],
+      outputs: [{ name: 'the ONLY place with main-session bid/offer', type: 'hash', description: '' }],
       details:
-        'Vì history OFF → top book hiện tại chỉ nằm trong SymbolInfo.bidOfferList. Mọi read bid/offer (priceBoard, snapshot) đều đi qua SymbolInfo.',
+        'Because history is OFF, the current top book lives only in SymbolInfo.bidOfferList. All bid/offer reads (priceBoard, snapshot) go through SymbolInfo.',
     },
     {
       id: 'r-list',
@@ -1464,9 +1464,9 @@ const lifecycleBidOffer = {
       subtitle: 'enableSaveBidOffer=false',
       position: { x: COL * 5.5, y: ROW },
       inputs: [{ name: 'skipped', type: 'skip', description: '' }],
-      outputs: [{ name: 'không ghi', type: 'none', description: '' }],
+      outputs: [{ name: 'no writes', type: 'none', description: '' }],
       details:
-        'Nếu bật feature flag thì đây sẽ là list history BidOffer theo mã. Hiện tại KHÔNG có data — mọi API cần history bid/offer (nếu có) sẽ thấy rỗng.',
+        'If the feature flag were enabled this would be the BidOffer history list per symbol. Currently NO data — any API needing bid/offer history (if any) would see it empty.',
     },
     {
       id: 'mongo',
@@ -1475,25 +1475,25 @@ const lifecycleBidOffer = {
       title: 'c_bid_offer',
       subtitle: 'enableSaveBidAsk=false',
       position: { x: COL * 5.5, y: ROW * 2 },
-      inputs: [{ name: 'không ghi runtime', type: 'skip', description: '' }],
+      inputs: [{ name: 'no runtime writes', type: 'skip', description: '' }],
       outputs: [],
       details:
-        'Collection có schema nhưng không có write runtime. Khi cần audit order book phải khôi phục lại từ snapshot SymbolInfo trong c_symbol_info.',
+        'The collection has a schema but receives no runtime writes. To audit the order book, you must reconstruct it from SymbolInfo snapshots in c_symbol_info.',
     },
     {
       id: 'q',
       kind: 'api',
       layer: 'Delivery',
       title: 'market-query-v2',
-      subtitle: 'Không có query BidOffer history riêng',
+      subtitle: 'No dedicated BidOffer history query',
       position: { x: COL * 7, y: 0 },
-      inputs: [{ name: 'gián tiếp qua SymbolInfo', type: 'Redis', description: '' }],
+      inputs: [{ name: 'indirect via SymbolInfo', type: 'Redis', description: '' }],
       outputs: [
-        { name: '/symbol/latest', type: 'endpoint', description: 'trả SymbolInfo có bidOfferList' },
-        { name: '/priceBoard', type: 'endpoint', description: 'bảng giá có top book' },
+        { name: '/symbol/latest', type: 'endpoint', description: 'returns SymbolInfo with bidOfferList' },
+        { name: '/priceBoard', type: 'endpoint', description: 'price board with top book' },
       ],
       details:
-        'Client không gọi riêng API "getBidOffer" — luôn đọc kèm trong SymbolInfo. Giảm được 1 round-trip.',
+        'The client does not call a dedicated "getBidOffer" API — always reads it inside SymbolInfo. Saves one round-trip.',
     },
     {
       id: 'wsv2',
@@ -1505,7 +1505,7 @@ const lifecycleBidOffer = {
       inputs: [{ name: 'consume bidOfferUpdate', type: 'Kafka', description: '' }],
       outputs: [{ name: 'publish market.bidoffer.{code}', type: 'channel', description: '' }],
       details:
-        'Compact payload (rút gọn field name) rồi broadcast cho subscriber channel market.bidoffer.{code}. Client vẽ đồ thị bid/ask realtime mà không cần đọc Redis.',
+        'Compacts payload (short field names) then broadcasts on market.bidoffer.{code}. The client renders realtime bid/ask charts without reading Redis.',
     },
   ],
   edges: [
@@ -1516,7 +1516,7 @@ const lifecycleBidOffer = {
     { source: 'service', target: 'r-info', label: 'HSET' },
     { source: 'service', target: 'r-list', label: 'skipped' },
     { source: 'service', target: 'mongo', label: 'skipped' },
-    { source: 'r-info', target: 'q', label: 'HGET gián tiếp' },
+    { source: 'r-info', target: 'q', label: 'HGET indirect' },
     { source: 'kafka', target: 'wsv2', label: 'consume direct', animated: true },
   ],
 };
@@ -1529,7 +1529,7 @@ const lifecycleOddLot = {
   category: 'lifecycle',
   title: 'Lifecycle · OddLot (SymbolInfoOddLot / BidOfferOddLot / SymbolQuoteOddLot)',
   subtitle:
-    'Nhánh lô lẻ CÁCH LY với snapshot chính · 2 feeds riêng (bidOfferOddLotUpdate, quoteOddLotUpdate) · runtime luôn ON ghi history',
+    'Odd-lot branch ISOLATED from the main snapshot · 2 dedicated feeds (bidOfferOddLotUpdate, quoteOddLotUpdate) · runtime always ON for history',
   accent: '#fb923c',
   nodes: [
     // Branch 1: BidOffer odd-lot
@@ -1538,46 +1538,46 @@ const lifecycleOddLot = {
       kind: 'source',
       layer: 'Lotte WS (BO odd-lot)',
       title: 'auto.bo.oddlot.<code>',
-      subtitle: 'Feed bid/ask lô lẻ',
+      subtitle: 'Odd-lot bid/ask feed',
       position: { x: 0, y: 0 },
       inputs: [{ name: 'subscribe', type: 'WS', description: '' }],
       outputs: [{ name: 'raw odd-lot bid/ask line', type: 'string', description: '' }],
       details:
-        'Channel riêng cho thị trường lô lẻ (< 100 cp/lô). Format giống auto.bo nhưng volume tính theo cổ phiếu lẻ.',
+        'Dedicated channel for the odd-lot market (< 100 shares/lot). Same format as auto.bo but volume is in odd shares.',
     },
     {
       id: 'kafka-bo',
       kind: 'kafka',
       layer: 'Kafka',
       title: 'bidOfferOddLotUpdate',
-      subtitle: 'Topic RIÊNG',
+      subtitle: 'DEDICATED topic',
       position: { x: COL, y: 0 },
       inputs: [{ name: 'collector producer', type: 'Kafka', description: '' }],
       outputs: [{ name: 'realtime-v2 + ws-v2', type: 'Kafka', description: '' }],
       details:
-        'Tách riêng topic với bidOfferUpdate để consumer nào không cần lô lẻ có thể bỏ qua. Ws-v2 consume cả 2 nhưng publish qua channel khác nhau.',
+        'Separated from bidOfferUpdate so consumers that do not need odd-lot can skip it. ws-v2 consumes both but publishes on different channels.',
     },
     {
       id: 'svc-bo',
       kind: 'logic',
       layer: 'BidOfferService',
       title: 'updateBidOfferOddLot()',
-      subtitle: 'Method riêng cho lô lẻ',
+      subtitle: 'Separate method for odd-lot',
       position: { x: COL * 2, y: 0 },
       inputs: [{ name: 'BidOfferOddLot', type: 'object', description: '' }],
       outputs: [
-        { name: 'lấy SymbolInfoOddLot từ cache (hoặc tạo mới, sequence=1)', type: 'ensure', description: '' },
+        { name: 'get SymbolInfoOddLot from cache (or create new, sequence=1)', type: 'ensure', description: '' },
         { name: 'ConvertUtils.updateByBidOfferOddLot()', type: 'merge', description: '' },
         { name: 'HSET realtime_mapSymbolInfoOddLot[code]', type: 'Redis', description: '' },
         { name: 'set sequence + id = code_datetime_seq', type: 'set', description: '' },
         { name: 'RPUSH realtime_listBidOfferOddLot_{code}', type: 'Redis', description: '' },
       ],
       details:
-        'Khác updateBidOffer thường:\n' +
-        '  • Làm việc với SymbolInfoOddLot (object riêng) — nếu cache miss sẽ TẠO MỚI với sequence=1 (không cần init từ REST)\n' +
-        '  • Field giống nhưng giá trị volume tính theo cổ phiếu lẻ\n' +
-        '  • LUÔN RPUSH vào realtime_listBidOfferOddLot_{code} (không có feature flag skip như bản stock)\n' +
-        '  • id format: code_yyyyMMddHHmmss_sequence để client paginate theo thời gian.',
+        'Differences from regular updateBidOffer:\n' +
+        '  • Works with SymbolInfoOddLot (separate object) — on cache miss CREATES a new one with sequence=1 (no REST init required)\n' +
+        '  • Same fields but volume values are in odd shares\n' +
+        '  • ALWAYS RPUSH into realtime_listBidOfferOddLot_{code} (no skip feature flag like the stock version)\n' +
+        '  • id format: code_yyyyMMddHHmmss_sequence so the client can paginate by time.',
     },
 
     // Branch 2: Quote odd-lot
@@ -1586,48 +1586,48 @@ const lifecycleOddLot = {
       kind: 'source',
       layer: 'Lotte WS (Quote odd-lot)',
       title: 'auto.qt.oddlot.<code>',
-      subtitle: 'Feed quote lô lẻ',
+      subtitle: 'Odd-lot quote feed',
       position: { x: 0, y: ROW * 2 },
       inputs: [{ name: 'subscribe', type: 'WS', description: '' }],
       outputs: [{ name: 'raw odd-lot quote line', type: 'string', description: '' }],
       details:
-        'Channel quote cho mã lô lẻ, chỉ phát khi có khớp lô lẻ. Tần suất thấp hơn quote thường.',
+        'Quote channel for odd-lot symbols, emitted only on odd-lot matches. Lower frequency than regular quotes.',
     },
     {
       id: 'kafka-qt',
       kind: 'kafka',
       layer: 'Kafka',
       title: 'quoteOddLotUpdate',
-      subtitle: 'Topic RIÊNG',
+      subtitle: 'DEDICATED topic',
       position: { x: COL, y: ROW * 2 },
       inputs: [{ name: 'collector producer', type: 'Kafka', description: '' }],
       outputs: [{ name: 'realtime-v2 + ws-v2', type: 'Kafka', description: '' }],
       details:
-        'Message = SymbolQuoteOddLot (subtype của SymbolQuote). Consumer realtime-v2 nhận diện qua instanceof để rẽ nhánh xử lý.',
+        'Message = SymbolQuoteOddLot (subtype of SymbolQuote). The realtime-v2 consumer uses instanceof to route the processing branch.',
     },
     {
       id: 'svc-qt',
       kind: 'logic',
       layer: 'QuoteService',
-      title: 'updateQuote() — nhánh SymbolQuoteOddLot',
-      subtitle: 'Reuse method nhưng if-instanceof',
+      title: 'updateQuote() — SymbolQuoteOddLot branch',
+      subtitle: 'Reuses method but with if-instanceof',
       position: { x: COL * 2, y: ROW * 2 },
       inputs: [{ name: 'SymbolQuoteOddLot', type: 'object', description: '' }],
       outputs: [
-        { name: 'update SymbolInfoOddLot (KHÔNG chạm SymbolInfo thường)', type: 'merge', description: '' },
+        { name: 'update SymbolInfoOddLot (does NOT touch regular SymbolInfo)', type: 'merge', description: '' },
         { name: 'HSET realtime_mapSymbolInfoOddLot[code]', type: 'Redis', description: '' },
       ],
       details:
-        'QuoteService.updateQuote() check instanceof:\n' +
-        '  • SymbolQuote (thường) → full fanout 7 hướng như lifecycle Quote\n' +
-        '  • SymbolQuoteOddLot → CHỈ update SymbolInfoOddLot\n\n' +
-        'Nhánh odd-lot KHÔNG ghi vào:\n' +
-        '  – realtime_listQuote_* (không giữ tick history)\n' +
-        '  – realtime_listQuoteMinute_* (không có minute bar)\n' +
-        '  – realtime_mapSymbolStatistic (không có bucket giá)\n' +
-        '  – realtime_mapSymbolDaily (không có daily OHLCV riêng)\n' +
-        '  – realtime_mapForeignerDaily (không track NĐTNN riêng cho lô lẻ)\n\n' +
-        'Lý do: thị trường lô lẻ dữ liệu thưa, không cần derived state phức tạp.',
+        'QuoteService.updateQuote() checks instanceof:\n' +
+        '  • SymbolQuote (regular) → full 7-way fanout as in the Quote lifecycle\n' +
+        '  • SymbolQuoteOddLot → ONLY updates SymbolInfoOddLot\n\n' +
+        'The odd-lot branch does NOT write to:\n' +
+        '  – realtime_listQuote_* (no tick history kept)\n' +
+        '  – realtime_listQuoteMinute_* (no minute bars)\n' +
+        '  – realtime_mapSymbolStatistic (no price buckets)\n' +
+        '  – realtime_mapSymbolDaily (no separate daily OHLCV)\n' +
+        '  – realtime_mapForeignerDaily (no separate foreign investor tracking for odd-lot)\n\n' +
+        'Reason: odd-lot market data is sparse and does not need complex derived state.',
     },
 
     // Shared Redis keys
@@ -1636,16 +1636,16 @@ const lifecycleOddLot = {
       kind: 'redis',
       layer: 'Redis (shared)',
       title: 'realtime_mapSymbolInfoOddLot[code]',
-      subtitle: 'Hash chung cho 2 nhánh',
+      subtitle: 'Shared hash for both branches',
       position: { x: COL * 3.2, y: ROW },
       inputs: [
-        { name: 'HSET từ BidOfferService (updatedBy=BidOfferOddLot)', type: 'Redis', description: '' },
-        { name: 'HSET từ QuoteService (updatedBy=SymbolQuoteOddLot)', type: 'Redis', description: '' },
+        { name: 'HSET from BidOfferService (updatedBy=BidOfferOddLot)', type: 'Redis', description: '' },
+        { name: 'HSET from QuoteService (updatedBy=SymbolQuoteOddLot)', type: 'Redis', description: '' },
       ],
       outputs: [{ name: 'query-v2 + ws-v2', type: 'hash', description: '' }],
       details:
-        'Single hash nhận ghi từ 2 mutator khác nhau. Field updatedBy cho biết lần update cuối đến từ nguồn nào (BidOfferOddLot hay SymbolQuoteOddLot).\n\n' +
-        'Shape tương tự SymbolInfo nhưng bidOfferList tính theo lô lẻ.',
+        'A single hash written to by two different mutators. The updatedBy field indicates which source last wrote (BidOfferOddLot or SymbolQuoteOddLot).\n\n' +
+        'Shape similar to SymbolInfo but bidOfferList is in odd shares.',
     },
     {
       id: 'r-list',
@@ -1654,10 +1654,10 @@ const lifecycleOddLot = {
       title: 'realtime_listBidOfferOddLot_{code}',
       subtitle: 'List — runtime ON',
       position: { x: COL * 3.2, y: 0 },
-      inputs: [{ name: 'RPUSH từ updateBidOfferOddLot', type: 'Redis', description: '' }],
-      outputs: [{ name: 'history đầu sổ odd-lot', type: 'list', description: 'id = code_yyyyMMddHHmmss_seq' }],
+      inputs: [{ name: 'RPUSH from updateBidOfferOddLot', type: 'Redis', description: '' }],
+      outputs: [{ name: 'odd-lot order book history', type: 'list', description: 'id = code_yyyyMMddHHmmss_seq' }],
       details:
-        'KHÁC bản stock (enableSaveBidOffer=false) — nhánh odd-lot luôn ON, giữ lại mỗi snapshot order book lô lẻ để hiển thị diễn biến cho client.',
+        'DIFFERENT from the stock version (enableSaveBidOffer=false) — the odd-lot branch is always ON, keeping each odd-lot order book snapshot to display the evolution to the client.',
     },
 
     // Delivery
@@ -1671,25 +1671,25 @@ const lifecycleOddLot = {
       inputs: [{ name: 'HMGET / LRANGE', type: 'Redis', description: '' }],
       outputs: [
         { name: 'querySymbolLatestOddLot', type: 'endpoint', description: 'HMGET SYMBOL_INFO_ODD_LOT' },
-        { name: '/symbol/oddlotLatest', type: 'endpoint', description: 'Snapshot + bidOffer lô lẻ' },
+        { name: '/symbol/oddlotLatest', type: 'endpoint', description: 'Snapshot + odd-lot bid/offer' },
       ],
       details:
-        'Client mở tab "Lô lẻ" gọi endpoint riêng — service HMGET realtime_mapSymbolInfoOddLot cho nhiều mã cùng lúc. History bid/offer đọc thêm từ realtime_listBidOfferOddLot_{code}.',
+        'When the client opens the "Odd lot" tab a dedicated endpoint is called — the service HMGETs realtime_mapSymbolInfoOddLot for multiple symbols at once. Bid/offer history is read from realtime_listBidOfferOddLot_{code}.',
     },
     {
       id: 'wsv2',
       kind: 'ws',
       layer: 'Delivery',
       title: 'ws-v2 channels',
-      subtitle: 'OddLot channels riêng',
+      subtitle: 'Dedicated OddLot channels',
       position: { x: COL * 4.8, y: ROW * 1.5 },
-      inputs: [{ name: 'consume 2 topics odd-lot', type: 'Kafka', description: '' }],
+      inputs: [{ name: 'consume 2 odd-lot topics', type: 'Kafka', description: '' }],
       outputs: [
         { name: 'market.bidofferOddLot.{code}', type: 'channel', description: '' },
         { name: 'market.quoteOddLot.{code}', type: 'channel', description: '' },
       ],
       details:
-        'Channel riêng để client tuỳ chọn subscribe mà không nhận cả stream thường. Payload dùng convertDataPublishV2BidOfferOddLot / convertDataPublishV2QuoteOddLot để compact.',
+        'Dedicated channels so clients can optionally subscribe without receiving the regular stream. Payload uses convertDataPublishV2BidOfferOddLot / convertDataPublishV2QuoteOddLot to compact.',
     },
 
     // Persist + reset
@@ -1703,7 +1703,7 @@ const lifecycleOddLot = {
       inputs: [{ name: '@Scheduled', type: 'cron', description: '' }],
       outputs: [{ name: 'getAllSymbolInfoOddLot() → Mongo odd-lot collection', type: 'bulk', description: '' }],
       details:
-        'Cùng cron saveRedisToDatabase — thêm bước getAllSymbolInfoOddLot() bulk-write sang collection odd-lot (tên khác c_symbol_info).',
+        'Same saveRedisToDatabase cron — adds a getAllSymbolInfoOddLot() step bulk-writing to the odd-lot collection (a different name from c_symbol_info).',
     },
     {
       id: 'cron-reset',
@@ -1715,11 +1715,11 @@ const lifecycleOddLot = {
       inputs: [{ name: '@Scheduled', type: 'cron', description: '' }],
       outputs: [
         { name: 'clear realtime_listBidOfferOddLot_*', type: 'del', description: '' },
-        { name: 'reset oddlotBidOfferList trong SymbolInfoOddLot', type: 'reset', description: '' },
+        { name: 'reset oddlotBidOfferList inside SymbolInfoOddLot', type: 'reset', description: '' },
       ],
       details:
-        '00:55 removeAutoData xoá history list bid/offer lô lẻ.\n' +
-        '01:35 refreshSymbolInfo reset oddlotBidOfferList trong SymbolInfoOddLot — giống bản stock, không xoá snapshot mà chỉ reset field intraday.',
+        '00:55 removeAutoData deletes the odd-lot bid/offer history list.\n' +
+        '01:35 refreshSymbolInfo resets oddlotBidOfferList inside SymbolInfoOddLot — like the stock version, does not delete the snapshot, only resets intraday fields.',
     },
   ],
   edges: [
@@ -1751,7 +1751,7 @@ const lifecycleSymbolDaily = {
   category: 'lifecycle',
   title: 'Lifecycle · SymbolDaily',
   subtitle:
-    'Daily OHLCV nối intraday và historical · upsert từ Quote + Extra · snapshot 6×/day sang Mongo · 22:50 clear',
+    'Daily OHLCV bridging intraday and historical · upsert from Quote + Extra · snapshot 6×/day to Mongo · cleared 22:50',
   accent: '#22d3ee',
   nodes: [
     {
@@ -1762,12 +1762,12 @@ const lifecycleSymbolDaily = {
       subtitle: 'ConvertUtils.updateDailyByQuote()',
       position: { x: 0, y: 0 },
       inputs: [{ name: 'SymbolQuote', type: 'object', description: '' }],
-      outputs: [{ name: 'build/patch SymbolDaily từ tick', type: 'compute', description: '' }],
+      outputs: [{ name: 'build/patch SymbolDaily from tick', type: 'compute', description: '' }],
       details:
-        'Từ tick mới, service compute SymbolDaily cho ngày hiện tại:\n' +
-        '  • Nếu chưa có → tạo mới { open = tick.last (tick đầu tiên), high=low=close=tick.last, volume/value = tick.matching* }\n' +
-        '  • Nếu đã có → high = max(high, tick.last), low = min(low, tick.last), close = tick.last, volume/value += tick.matching*\n\n' +
-        'id = code_yyyyMMdd — idempotent, upsert an toàn.',
+        'From each new tick, the service computes SymbolDaily for the current day:\n' +
+        '  • If missing → create new { open = tick.last (first tick), high=low=close=tick.last, volume/value = tick.matching* }\n' +
+        '  • If existing → high = max(high, tick.last), low = min(low, tick.last), close = tick.last, volume/value += tick.matching*\n\n' +
+        'id = code_yyyyMMdd — idempotent, safe to upsert.',
     },
     {
       id: 'e',
@@ -1779,20 +1779,20 @@ const lifecycleSymbolDaily = {
       inputs: [{ name: 'ExtraQuote', type: 'object', description: '' }],
       outputs: [{ name: 'upsert SymbolDaily', type: 'upsert', description: '' }],
       details:
-        'ExtraQuote (đặc biệt từ DealNotice và calExtraUpdate) mang field mà Quote thường không có:\n' +
-        '  • ptTradingVolume/Value (put-through cộng dồn)\n' +
-        '  • foreignerMatch* (đôi khi)\n\n' +
-        'upsertSymbolDaily merge các field này vào SymbolDaily hiện tại, giữ nguyên OHLCV.',
+        'ExtraQuote (special, from DealNotice and calExtraUpdate) carries fields that regular Quote does not:\n' +
+        '  • ptTradingVolume/Value (accumulated put-through)\n' +
+        '  • foreignerMatch* (sometimes)\n\n' +
+        'upsertSymbolDaily merges these fields into the current SymbolDaily while preserving OHLCV.',
     },
     {
       id: 'r',
       kind: 'redis',
       layer: 'Redis intraday',
       title: 'realtime_mapSymbolDaily[code]',
-      subtitle: 'Hash OHLCV ngày',
+      subtitle: 'Daily OHLCV hash',
       position: { x: COL * 1.5, y: ROW * 0.5 },
       inputs: [{ name: 'HSET', type: 'Redis', description: '' }],
-      outputs: [{ name: 'daily OHLCV hôm nay', type: 'hash', description: 'id = code_yyyyMMdd' }],
+      outputs: [{ name: 'today\'s daily OHLCV', type: 'hash', description: 'id = code_yyyyMMdd' }],
       details:
         'Shape:\n' +
         '{ code, date, open, high, low, close/last, tradingVolume, tradingValue, ptTradingVolume/Value, foreigner..., updatedAt }',
@@ -1802,13 +1802,13 @@ const lifecycleSymbolDaily = {
       kind: 'mongo',
       layer: 'Mongo historical',
       title: 'c_symbol_daily',
-      subtitle: 'Day-level lịch sử',
+      subtitle: 'Day-level history',
       position: { x: COL * 3, y: ROW * 1.7 },
       inputs: [{ name: 'saveRedisToDatabase → getAllSymbolDaily', type: 'bulk', description: '' }],
-      outputs: [{ name: 'find() cho querySymbolPeriod', type: 'read', description: '' }],
+      outputs: [{ name: 'find() for querySymbolPeriod', type: 'read', description: '' }],
       details:
-        'Index { code, date }. Mỗi ngày có 1 document cho mỗi mã.\n\n' +
-        'Dùng làm nguồn historical cho period query và TradingView history khi timeframe > 1 ngày.',
+        'Indexed by { code, date }. Each day has 1 document per symbol.\n\n' +
+        'Used as the historical source for period queries and TradingView history when timeframe > 1 day.',
     },
     {
       id: 'q-today',
@@ -1818,11 +1818,11 @@ const lifecycleSymbolDaily = {
       subtitle: 'Redis-first',
       position: { x: COL * 3, y: 0 },
       inputs: [
-        { name: 'Redis mapSymbolInfo hoặc mapSymbolDaily', type: 'Redis', description: '' },
+        { name: 'Redis mapSymbolInfo or mapSymbolDaily', type: 'Redis', description: '' },
       ],
       outputs: [{ name: 'querySymbolPeriod (today slice)', type: 'endpoint', description: '' }],
       details:
-        'Khi toDate = today, service KHÔNG đọc Mongo — đọc thẳng realtime_mapSymbolDaily để có OHLCV mới nhất. Nếu key miss fallback sang realtime_mapSymbolInfo (SymbolInfo cũng có OHLC ngày).',
+        'When toDate = today, the service does NOT read Mongo — it reads realtime_mapSymbolDaily directly for the latest OHLCV. If the key is missing, falls back to realtime_mapSymbolInfo (SymbolInfo also carries today\'s OHLC).',
     },
     {
       id: 'q-past',
@@ -1835,10 +1835,10 @@ const lifecycleSymbolDaily = {
       outputs: [
         { name: 'querySymbolPeriod', type: 'endpoint', description: 'range [from, to]' },
         { name: 'querySymbolDailyReturns', type: 'endpoint', description: 'returns %' },
-        { name: 'TradingView history', type: 'endpoint', description: 'bars daily' },
+        { name: 'TradingView history', type: 'endpoint', description: 'daily bars' },
       ],
       details:
-        'Range toàn quá khứ → query Mongo by { code, date ∈ [from, to] }. Nếu toDate ≥ today, service gộp thêm snapshot realtime để trả về liền mạch.',
+        'Full historical ranges → query Mongo by { code, date ∈ [from, to] }. If toDate ≥ today, the service also merges in the realtime snapshot for a seamless response.',
     },
     {
       id: 'cron-persist',
@@ -1850,14 +1850,14 @@ const lifecycleSymbolDaily = {
       inputs: [{ name: '@Scheduled', type: 'cron', description: '' }],
       outputs: [{ name: 'getAllSymbolDaily → bulk write', type: 'Mongo', description: '' }],
       details:
-        'Tại mỗi cron run, HGETALL realtime_mapSymbolDaily → bulk upsert c_symbol_daily theo key (code, date). 6 lần/ngày đảm bảo ngay cả khi crash cũng chỉ mất tối đa ~2 giờ daily.',
+        'At each cron run, HGETALL realtime_mapSymbolDaily → bulk upsert c_symbol_daily keyed by (code, date). Running 6×/day ensures that even on a crash at most ~2 hours of daily data can be lost.',
     },
     {
       id: 'cron-clear',
       kind: 'schedule',
       layer: 'Cron',
       title: 'clearOldSymbolDaily() 22:50',
-      subtitle: 'Clear trước khi ngày mới',
+      subtitle: 'Clear before the new day',
       position: { x: COL * 1.5, y: ROW * 3.3 },
       inputs: [{ name: '@Scheduled', type: 'cron', description: '' }],
       outputs: [
@@ -1865,7 +1865,7 @@ const lifecycleSymbolDaily = {
         { name: 'clear cache mapSymbolDaily', type: 'del', description: '' },
       ],
       details:
-        '22:50 (sau giờ giao dịch xa) xoá daily hash + in-memory cache. Đến 01:35 ngày mới refreshSymbolInfo chạy xong, tick đầu tiên của ngày sẽ tạo lại record.',
+        'At 22:50 (long after trading) clears the daily hash + in-memory cache. By the time 01:35 refreshSymbolInfo runs, the first tick of the new day will re-create the record.',
     },
   ],
   edges: [
@@ -1887,7 +1887,7 @@ const lifecycleForeignerDaily = {
   category: 'lifecycle',
   title: 'Lifecycle · ForeignerDaily',
   subtitle:
-    'State NĐTNN trong ngày · update từ Quote và Extra · overlay Redis khi query bao gồm today · snapshot sang Mongo 6×/day',
+    'Intraday foreign investor state · updated from Quote and Extra · Redis overlay when query includes today · snapshot to Mongo 6×/day',
   accent: '#fde047',
   nodes: [
     {
@@ -1900,14 +1900,14 @@ const lifecycleForeignerDaily = {
       inputs: [{ name: 'SymbolQuote', type: 'object', description: '' }],
       outputs: [{ name: 'merge foreignerBuy/Sell/TotalRoom/CurrentRoom', type: 'merge', description: '' }],
       details:
-        'Mỗi tick, service:\n' +
-        '  1. Lấy ForeignerDaily hiện tại (nếu chưa có → tạo mới với baseline từ SymbolInfo)\n' +
-        '  2. foreignerDaily.updateByQuote(quote) cộng dồn:\n' +
+        'On each tick, the service:\n' +
+        '  1. Fetches current ForeignerDaily (if missing → create new with baseline from SymbolInfo)\n' +
+        '  2. foreignerDaily.updateByQuote(quote) accumulates:\n' +
         '     – foreignerBuyVolume += quote.foreignerMatchBuyVolume\n' +
         '     – foreignerSellVolume += quote.foreignerMatchSellVolume\n' +
-        '     – foreignerBuyValue/SellValue tương tự\n' +
-        '     – foreignerCurrentRoom từ quote (snapshot)\n' +
-        '     – holdVolume/Ratio/buyAbleRatio compute lại\n' +
+        '     – foreignerBuyValue/SellValue similarly\n' +
+        '     – foreignerCurrentRoom from quote (snapshot)\n' +
+        '     – holdVolume/Ratio/buyAbleRatio recomputed\n' +
         '  3. HSET realtime_mapForeignerDaily[code]',
     },
     {
@@ -1918,9 +1918,9 @@ const lifecycleForeignerDaily = {
       subtitle: 'ConvertUtils.updateByExtraQuote(foreignerDaily, extra)',
       position: { x: 0, y: ROW },
       inputs: [{ name: 'ExtraQuote', type: 'object', description: '' }],
-      outputs: [{ name: 'merge enrichment foreigner', type: 'merge', description: '' }],
+      outputs: [{ name: 'merge foreigner enrichment', type: 'merge', description: '' }],
       details:
-        'Extra mang field NĐTNN đã được collector tính toán tổng hợp (ví dụ lúc có DealNotice từ NĐTNN). Service merge các field này vào ForeignerDaily hiện tại rồi HSET lại.',
+        'Extra carries foreign-investor fields pre-aggregated by the collector (e.g. when a DealNotice is from a foreign investor). The service merges those fields into the current ForeignerDaily and HSETs it back.',
     },
     {
       id: 'r',
@@ -1930,7 +1930,7 @@ const lifecycleForeignerDaily = {
       subtitle: 'Hash',
       position: { x: COL * 1.5, y: ROW * 0.5 },
       inputs: [{ name: 'HSET', type: 'Redis', description: '' }],
-      outputs: [{ name: 'foreigner hôm nay', type: 'hash', description: '' }],
+      outputs: [{ name: 'today\'s foreigner', type: 'hash', description: '' }],
       details:
         'Shape: { code, symbolType, date, foreignerBuy/SellValue/Volume, foreignerTotalRoom, foreignerCurrentRoom, foreignerBuyAbleRatio, foreignerHoldVolume, foreignerHoldRatio, listedQuantity, createdAt, updatedAt }',
     },
@@ -1939,18 +1939,18 @@ const lifecycleForeignerDaily = {
       kind: 'api',
       layer: 'Delivery',
       title: 'market-query-v2',
-      subtitle: 'Overlay today với Redis',
+      subtitle: 'Overlay today with Redis',
       position: { x: COL * 3, y: 0 },
       inputs: [
         { name: '/symbol/{symbol}/foreigner', type: 'endpoint', description: '' },
         { name: 'Mongo ForeignerDaily historical', type: 'Mongo', description: '' },
       ],
-      outputs: [{ name: 'nếu toDate ≥ today → overlay bằng realtime_mapForeignerDaily', type: 'merge', description: '' }],
+      outputs: [{ name: 'if toDate ≥ today → overlay with realtime_mapForeignerDaily', type: 'merge', description: '' }],
       details:
-        'Logic query:\n' +
-        '  1. Luôn query Mongo c_foreigner_daily theo { code, date ∈ [from, to] } trước\n' +
-        '  2. Nếu toDate ≥ today → lấy thêm realtime_mapForeignerDaily[code], ghi đè record của today trong kết quả (vì Mongo record today có thể outdated vài phút)\n' +
-        '  3. Trả về timeseries liền mạch',
+        'Query logic:\n' +
+        '  1. Always query Mongo c_foreigner_daily by { code, date ∈ [from, to] } first\n' +
+        '  2. If toDate ≥ today → also fetch realtime_mapForeignerDaily[code] and overwrite the today record in the result (the Mongo today record may be a few minutes stale)\n' +
+        '  3. Return a seamless timeseries',
     },
     {
       id: 'cron-persist',
@@ -1966,19 +1966,19 @@ const lifecycleForeignerDaily = {
         { name: 'bulk write c_foreigner_daily', type: 'Mongo', description: '' },
       ],
       details:
-        'Pipeline: HGETALL realtime_mapForeignerDaily → mỗi doc set id = code_yyyyMMdd → bulk upsert vào c_foreigner_daily (idempotent).',
+        'Pipeline: HGETALL realtime_mapForeignerDaily → each doc set id = code_yyyyMMdd → bulk upsert into c_foreigner_daily (idempotent).',
     },
     {
       id: 'mongo',
       kind: 'mongo',
       layer: 'Mongo',
       title: 'c_foreigner_daily',
-      subtitle: 'Historical NĐTNN',
+      subtitle: 'Foreign-investor history',
       position: { x: COL * 3, y: ROW * 2 },
       inputs: [{ name: 'bulk write', type: 'Mongo', description: '' }],
       outputs: [{ name: 'historical source', type: 'read', description: '' }],
       details:
-        'Index { code, date }. Lưu timeseries NĐTNN đủ các ngày trước. Dùng khi client xem chart 1M/3M/1Y khối ngoại mua/bán.',
+        'Indexed by { code, date }. Stores the full foreign-investor timeseries for all prior days. Used when the client views 1M/3M/1Y foreign buy/sell charts.',
     },
   ],
   edges: [
@@ -1999,7 +1999,7 @@ const lifecycleMarketStatus = {
   category: 'lifecycle',
   title: 'Lifecycle · MarketStatus',
   subtitle:
-    'State phiên theo market · auto.tickerNews → Kafka → updateMarketStatus · broadcast sessions cho mọi SymbolInfo cùng market khi ATO/ATC',
+    'Per-market session state · auto.tickerNews → Kafka → updateMarketStatus · broadcasts sessions to every SymbolInfo in the same market on ATO/ATC',
   accent: '#f87171',
   nodes: [
     {
@@ -2012,7 +2012,7 @@ const lifecycleMarketStatus = {
       inputs: [{ name: 'subscribe', type: 'WS', description: '' }],
       outputs: [{ name: 'raw news text', type: 'string', description: '' }],
       details:
-        'Lotte bắn event mỗi khi sàn chuyển phiên (HOSE PRE → ATO → CONTINUOUS → ATC → POST, tương tự HNX/UPCOM). Format là chuỗi title dạng natural language mà collector phải parse.',
+        'Lotte emits an event whenever the exchange changes session (HOSE PRE → ATO → CONTINUOUS → ATC → POST, similar for HNX/UPCOM). The format is a natural-language title that the collector must parse.',
     },
     {
       id: 'collector',
@@ -2025,8 +2025,8 @@ const lifecycleMarketStatus = {
       outputs: [{ name: 'MarketStatusData', type: 'object', description: '' }],
       details:
         'Pipeline:\n' +
-        '  1. Parse title để tách market (HOSE/HNX/UPCOM/DERIVATIVE) và status (PRE/ATO/CONTINUOUS/LO/INTERMISSION/ATC/POST/CLOSE)\n' +
-        '  2. parseStatus() chuẩn hoá alias: "LO" trong news ↔ "CONTINUOUS" trong SymbolInfo\n' +
+        '  1. Parse the title to extract market (HOSE/HNX/UPCOM/DERIVATIVE) and status (PRE/ATO/CONTINUOUS/LO/INTERMISSION/ATC/POST/CLOSE)\n' +
+        '  2. parseStatus() normalizes aliases: "LO" in news ↔ "CONTINUOUS" in SymbolInfo\n' +
         '  3. Build MarketStatusData { market, status, type, date, time }\n' +
         '  4. publish Kafka marketStatus',
     },
@@ -2040,7 +2040,7 @@ const lifecycleMarketStatus = {
       inputs: [{ name: 'sendMessageSafe', type: 'Kafka', description: '' }],
       outputs: [{ name: 'realtime-v2 + ws-v2', type: 'Kafka', description: '' }],
       details:
-        'Tần suất rất thấp (vài event/ngày/market) — không cần throughput cao.',
+        'Very low frequency (a few events/day/market) — no need for high throughput.',
     },
     {
       id: 'handler',
@@ -2052,33 +2052,33 @@ const lifecycleMarketStatus = {
       inputs: [{ name: 'Message<MarketStatus>', type: 'Kafka', description: '' }],
       outputs: [{ name: 'updateMarketStatus()', type: 'call', description: '' }],
       details:
-        'Handler đơn giản, không qua MonitorService — forward trực tiếp đến MarketStatusService vì event ít và ảnh hưởng toàn market nên không cần sort theo code.',
+        'Simple handler — does not go through MonitorService; forwards directly to MarketStatusService because events are infrequent and market-wide, so no per-code ordering is required.',
     },
     {
       id: 'service',
       kind: 'logic',
       layer: 'MarketStatusService',
       title: 'updateMarketStatus()',
-      subtitle: 'Mutator duy nhất broadcast',
+      subtitle: 'The only broadcast mutator',
       position: { x: COL * 4, y: ROW },
       inputs: [{ name: 'MarketStatus', type: 'object', description: '' }],
       outputs: [
         { name: '1) set id = market + "_" + type', type: 'set', description: '' },
         { name: '2) set date', type: 'set', description: '' },
         { name: '3) HSET realtime_mapMarketStatus[id]', type: 'Redis', description: '' },
-        { name: '4) IF ATO/ATC → broadcast sessions=status sang MỌI SymbolInfo cùng market', type: 'broadcast', description: '' },
+        { name: '4) IF ATO/ATC → broadcast sessions=status to ALL SymbolInfo in the same market', type: 'broadcast', description: '' },
         { name: '5) ELSE sessions = null', type: 'set', description: '' },
       ],
       details:
-        'Đây là method "expensive" — 1 event có thể trigger update hàng nghìn SymbolInfo.\n\n' +
-        'Bước 4 chi tiết:\n' +
+        'This is an "expensive" method — 1 event can trigger updates to thousands of SymbolInfo entries.\n\n' +
+        'Step 4 in detail:\n' +
         '  • IF status ∈ {ATO, ATC}:\n' +
-        '      a. HGETALL realtime_mapSymbolInfo → lọc các mã có market = event.market\n' +
-        '      b. Với mỗi mã: set symbolInfo.sessions = status\n' +
-        '      c. HSET lại realtime_mapSymbolInfo[code] cho tất cả\n' +
+        '      a. HGETALL realtime_mapSymbolInfo → filter symbols where market = event.market\n' +
+        '      b. For each symbol: set symbolInfo.sessions = status\n' +
+        '      c. HSET realtime_mapSymbolInfo[code] for all of them\n' +
         '  • ELSE (CONTINUOUS/POST/CLOSE…):\n' +
-        '      – sessions = null (client UI sẽ không highlight phiên đặc biệt)\n\n' +
-        'Lưu ý: alias status="LO" (trong Redis hash) ≡ session="CONTINUOUS" trong SymbolInfo/BidOffer.',
+        '      – sessions = null (client UI does not highlight a special session)\n\n' +
+        'Note: alias status="LO" (in the Redis hash) ≡ session="CONTINUOUS" in SymbolInfo/BidOffer.',
     },
     {
       id: 'r-status',
@@ -2090,19 +2090,19 @@ const lifecycleMarketStatus = {
       inputs: [{ name: 'HSET', type: 'Redis', description: '' }],
       outputs: [{ name: 'session map', type: 'hash', description: '' }],
       details:
-        'Key field dạng "HOSE_STOCK", "HNX_STOCK", "DERIVATIVE_FUTURES"... để client query session của từng loại thị trường.',
+        'Field keys like "HOSE_STOCK", "HNX_STOCK", "DERIVATIVE_FUTURES"... so the client can query the session per market type.',
     },
     {
       id: 'r-info',
       kind: 'redis',
       layer: 'Redis (broadcast side-effect)',
       title: 'realtime_mapSymbolInfo[*]',
-      subtitle: 'Field sessions bị đè',
+      subtitle: 'sessions field overwritten',
       position: { x: COL * 5.2, y: ROW * 1.5 },
-      inputs: [{ name: 'HSET lại khi propagate', type: 'Redis', description: 'chỉ ATO/ATC' }],
+      inputs: [{ name: 'HSET again on propagate', type: 'Redis', description: 'only ATO/ATC' }],
       outputs: [{ name: 'sessions = ATO|ATC|null', type: 'field', description: '' }],
       details:
-        'Side-effect quan trọng: SymbolInfo không được mutator nào khác set field sessions trừ MarketStatusService. Các mutator khác (Quote/BidOffer) CÓ THỂ ghi session nhưng đó là session đi kèm tick, khác với field sessions (snapshot trạng thái phiên của cả market).',
+        'Important side-effect: no other mutator sets the sessions field on SymbolInfo except MarketStatusService. Other mutators (Quote/BidOffer) CAN write session, but that is the session carried by the tick, which differs from the sessions field (snapshot of the whole market\'s session state).',
     },
     {
       id: 'q',
@@ -2117,7 +2117,7 @@ const lifecycleMarketStatus = {
         { name: 'queryMarketSessionStatus', type: 'endpoint', description: '' },
       ],
       details:
-        'Client query 1 endpoint để biết trạng thái tất cả market (HOSE đang CONTINUOUS, HNX đang INTERMISSION...). Chỉ cần 1 HGETALL.',
+        'Client hits a single endpoint to know the status of all markets (HOSE in CONTINUOUS, HNX in INTERMISSION, ...). Requires only one HGETALL.',
     },
     {
       id: 'wsv2',
@@ -2129,7 +2129,7 @@ const lifecycleMarketStatus = {
       inputs: [{ name: 'consume marketStatus', type: 'Kafka', description: '' }],
       outputs: [{ name: 'publish market.status', type: 'channel', description: '' }],
       details:
-        'Channel market.status không theo code — broadcast cho mọi client. Client nhận event để cập nhật UI ticker top screen ("HOSE đang ATO, còn 2 phút...").',
+        'The market.status channel is not keyed by code — broadcast to all clients. Clients receive events to update the top-screen ticker UI ("HOSE in ATO, 2 minutes left...").',
     },
     {
       id: 'cron-persist',
@@ -2141,7 +2141,7 @@ const lifecycleMarketStatus = {
       inputs: [{ name: '@Scheduled', type: 'cron', description: '' }],
       outputs: [{ name: 'getAllMarketStatus → c_market_session_status', type: 'Mongo', description: '' }],
       details:
-        'Snapshot lịch sử các lần đổi phiên — hữu ích cho audit thời điểm chuyển phiên trong ngày.',
+        'Historical snapshot of every session change — useful for auditing when session transitions occurred during the day.',
     },
   ],
   edges: [
@@ -2165,7 +2165,7 @@ const lifecycleExtraUpdate = {
   category: 'lifecycle',
   title: 'Lifecycle · ExtraUpdate / ExtraQuote',
   subtitle:
-    'Event enrichment · 5 nguồn sinh (VN30/Futures/CW/DealNotice/calExtraUpdate) · KHÔNG là object lưu lâu · mutate SymbolInfo + ForeignerDaily + SymbolDaily rồi biến mất',
+    'Enrichment event · 5 producing sources (VN30/Futures/CW/DealNotice/calExtraUpdate) · NOT a long-lived object · mutates SymbolInfo + ForeignerDaily + SymbolDaily then disappears',
   accent: '#ec4899',
   nodes: [
     {
@@ -2173,14 +2173,14 @@ const lifecycleExtraUpdate = {
       kind: 'source',
       layer: 'Source 1/5',
       title: 'handleAutoData(IndexUpdateData VN30)',
-      subtitle: 'Tính basis cho futures',
+      subtitle: 'Compute basis for futures',
       position: { x: 0, y: 0 },
       inputs: [{ name: 'VN30 tick', type: 'object', description: '' }],
-      outputs: [{ name: 'ExtraUpdate { basis }', type: 'object', description: 'mỗi mã futures VN30F*' }],
+      outputs: [{ name: 'ExtraUpdate { basis }', type: 'object', description: 'for each VN30F* futures symbol' }],
       details:
-        'Khi VN30 index tick đến, collector iterate các mã futures VN30F* đang active:\n' +
+        'When a VN30 index tick arrives, the collector iterates the active VN30F* futures symbols:\n' +
         '  • basis = futuresLast − vn30.last\n' +
-        '  • Publish ExtraUpdate cho từng mã futures (có thể nhiều event cùng lúc)',
+        '  • Publish an ExtraUpdate for each futures symbol (can be many events simultaneously)',
     },
     {
       id: 's2',
@@ -2192,19 +2192,19 @@ const lifecycleExtraUpdate = {
       inputs: [{ name: 'Futures tick', type: 'object', description: '' }],
       outputs: [{ name: 'ExtraUpdate { basis }', type: 'object', description: '' }],
       details:
-        'Ngược lại với s1: khi futures tick đến, compute basis với vn30.last cached gần nhất. Kết quả là ExtraUpdate chỉ cho mã futures đó.',
+        'Inverse of s1: when a futures tick arrives, compute basis against the latest cached vn30.last. The result is an ExtraUpdate only for that futures symbol.',
     },
     {
       id: 's3',
       kind: 'source',
       layer: 'Source 3/5',
       title: 'handleAutoData(StockUpdateData CW)',
-      subtitle: 'Tính breakEven cho chứng quyền',
+      subtitle: 'Compute breakEven for covered warrants',
       position: { x: 0, y: ROW * 1.6 },
       inputs: [{ name: 'CW tick', type: 'object', description: '' }],
       outputs: [{ name: 'ExtraUpdate { breakEven }', type: 'object', description: '' }],
       details:
-        'Khi stock tick đến và mã là chứng quyền (CW), collector compute breakEven = strikePrice + CW.last × exerciseRatio (tuỳ loại CW). Publish ExtraUpdate chỉ cho CW đó.',
+        'When a stock tick arrives and the symbol is a covered warrant (CW), the collector computes breakEven = strikePrice + CW.last × exerciseRatio (depending on CW type). Publishes ExtraUpdate only for that CW.',
     },
     {
       id: 's4',
@@ -2213,37 +2213,37 @@ const lifecycleExtraUpdate = {
       title: 'DealNoticeData',
       subtitle: 'ExtraUpdate.fromDealNotice()',
       position: { x: 0, y: ROW * 2.4 },
-      inputs: [{ name: 'Deal notice mới', type: 'object', description: '' }],
-      outputs: [{ name: 'ExtraUpdate { ptVolume, ptValue }', type: 'object', description: 'tích lũy' }],
+      inputs: [{ name: 'New deal notice', type: 'object', description: '' }],
+      outputs: [{ name: 'ExtraUpdate { ptVolume, ptValue }', type: 'object', description: 'accumulated' }],
       details:
-        'Mỗi thỏa thuận khớp đẩy thêm vào PT summary của mã:\n' +
-        '  • ptVolume cộng dồn\n' +
-        '  • ptValue cộng dồn\n\n' +
-        'Collector publish SONG SONG 2 Kafka message: dealNoticeUpdate (raw) + extraUpdate (PT summary).',
+        'Every matched put-through adds to the symbol\'s PT summary:\n' +
+        '  • ptVolume accumulated\n' +
+        '  • ptValue accumulated\n\n' +
+        'The collector publishes 2 Kafka messages IN PARALLEL: dealNoticeUpdate (raw) + extraUpdate (PT summary).',
     },
     {
       id: 's5',
       kind: 'source',
       layer: 'Source 5/5',
       title: 'QuoteService.reCalculate()',
-      subtitle: 'Khi high/low year đổi',
+      subtitle: 'When high/low year changes',
       position: { x: 0, y: ROW * 3.4 },
       inputs: [{ name: 'SymbolQuote', type: 'object', description: '' }],
-      outputs: [{ name: 'publish calExtraUpdate', type: 'Kafka', description: 'topic riêng nhưng cùng consumer' }],
+      outputs: [{ name: 'publish calExtraUpdate', type: 'Kafka', description: 'dedicated topic but same consumer' }],
       details:
-        'Trong reCalculate, nếu tick.last vượt qua giá cao nhất/thấp nhất trong 52 tuần (1 năm), publish calExtraUpdate với { highYear, lowYear } để cập nhật SymbolInfo (highYear/lowYear là field hiển thị trên priceBoard).',
+        'Inside reCalculate, if tick.last exceeds the 52-week (1-year) high/low, publishes calExtraUpdate with { highYear, lowYear } to update SymbolInfo (highYear/lowYear are fields shown on the price board).',
     },
     {
       id: 'kafka',
       kind: 'kafka',
       layer: 'Kafka',
       title: 'extraUpdate / calExtraUpdate',
-      subtitle: '2 topic → cùng 1 consumer',
+      subtitle: '2 topics → same consumer',
       position: { x: COL * 1.3, y: ROW * 1.7 },
-      inputs: [{ name: '4 sources collector + 1 source realtime-v2', type: 'Kafka', description: '' }],
+      inputs: [{ name: '4 collector sources + 1 realtime-v2 source', type: 'Kafka', description: '' }],
       outputs: [{ name: 'ExtraQuoteUpdateHandler + ws-v2', type: 'Kafka', description: '' }],
       details:
-        'Chia 2 topic để routing rõ nhưng consumer thường handle cả 2 chung. extraUpdate cho basis/breakEven/pt, calExtraUpdate cho highYear/lowYear (do self-produce từ QuoteService trong realtime-v2).',
+        'Split into 2 topics for routing clarity but the consumer handles both together. extraUpdate carries basis/breakEven/pt, calExtraUpdate carries highYear/lowYear (self-produced from QuoteService in realtime-v2).',
     },
     {
       id: 'handler',
@@ -2255,14 +2255,14 @@ const lifecycleExtraUpdate = {
       inputs: [{ name: 'Message<ExtraQuote>', type: 'Kafka', description: '' }],
       outputs: [{ name: 'updateExtraQuote()', type: 'call', description: '' }],
       details:
-        'Handler không qua MonitorService — forward trực tiếp đến ExtraQuoteService vì event enrichment có tần suất thấp hơn quote/bidoffer.',
+        'The handler does not go through MonitorService — forwards directly to ExtraQuoteService because enrichment events have a lower frequency than quote/bidoffer.',
     },
     {
       id: 'service',
       kind: 'logic',
       layer: 'ExtraQuoteService',
       title: 'updateExtraQuote()',
-      subtitle: 'Mutate 3 target object',
+      subtitle: 'Mutates 3 target objects',
       position: { x: COL * 3.7, y: ROW * 1.7 },
       inputs: [{ name: 'ExtraQuote', type: 'object', description: '' }],
       outputs: [
@@ -2271,17 +2271,17 @@ const lifecycleExtraUpdate = {
         { name: '③ SymbolDaily (upsert)', type: 'upsert', description: '' },
       ],
       details:
-        'Method này là "fanout mutator" — 1 ExtraQuote mutate 3 target:\n\n' +
+        'This method is a "fanout mutator" — 1 ExtraQuote mutates 3 targets:\n\n' +
         '  1. SymbolInfo:\n' +
-        '     – ConvertUtils.updateByExtraQuote merge basis, breakEven, ptVolume/Value, highYear, lowYear\n' +
+        '     – ConvertUtils.updateByExtraQuote merges basis, breakEven, ptVolume/Value, highYear, lowYear\n' +
         '     – HSET realtime_mapSymbolInfo\n\n' +
         '  2. ForeignerDaily:\n' +
-        '     – ConvertUtils.updateByExtraQuote(foreignerDaily, extra) merge field NĐTNN bổ sung\n' +
+        '     – ConvertUtils.updateByExtraQuote(foreignerDaily, extra) merges additional foreign-investor fields\n' +
         '     – HSET realtime_mapForeignerDaily\n\n' +
         '  3. SymbolDaily:\n' +
-        '     – upsertSymbolDaily merge ptTradingVolume/Value\n' +
+        '     – upsertSymbolDaily merges ptTradingVolume/Value\n' +
         '     – HSET realtime_mapSymbolDaily\n\n' +
-        'Sau khi xong, ExtraQuote không được lưu thêm ở đâu — chỉ tan biến.',
+        'After processing, the ExtraQuote is not stored anywhere — it simply vanishes.',
     },
     {
       id: 't1',
@@ -2293,7 +2293,7 @@ const lifecycleExtraUpdate = {
       inputs: [{ name: 'HSET', type: 'Redis', description: '' }],
       outputs: [],
       details:
-        'Cùng hash của lifecycle SymbolInfo — xem diagram riêng. ExtraQuote là 1 trong 6 mutator.',
+        'Same hash as in the SymbolInfo lifecycle — see its diagram. ExtraQuote is 1 of 6 mutators.',
     },
     {
       id: 't2',
@@ -2305,7 +2305,7 @@ const lifecycleExtraUpdate = {
       inputs: [{ name: 'HSET', type: 'Redis', description: '' }],
       outputs: [],
       details:
-        'Cùng hash của lifecycle ForeignerDaily — ExtraQuote là 1 trong 2 source (cùng với Quote).',
+        'Same hash as in the ForeignerDaily lifecycle — ExtraQuote is 1 of 2 sources (along with Quote).',
     },
     {
       id: 't3',
@@ -2317,7 +2317,7 @@ const lifecycleExtraUpdate = {
       inputs: [{ name: 'HSET', type: 'Redis', description: '' }],
       outputs: [],
       details:
-        'Cùng hash của lifecycle SymbolDaily — ExtraQuote là 1 trong 2 source (cùng với Quote).',
+        'Same hash as in the SymbolDaily lifecycle — ExtraQuote is 1 of 2 sources (along with Quote).',
     },
     {
       id: 'wsv2',
@@ -2329,19 +2329,19 @@ const lifecycleExtraUpdate = {
       inputs: [{ name: 'consume extraUpdate', type: 'Kafka', description: '' }],
       outputs: [{ name: 'publish market.extra.{code}', type: 'channel', description: '' }],
       details:
-        'Channel riêng để client cập nhật các field enrichment mà không phải reload SymbolInfo. Hữu ích cho góc hiển thị "basis/breakEven/PT summary" realtime.',
+        'Dedicated channel so the client can update enrichment fields without reloading SymbolInfo. Useful for realtime display of "basis/breakEven/PT summary" widgets.',
     },
     {
       id: 'note',
       kind: 'config',
       layer: 'Note',
-      title: 'KHÔNG persist độc lập',
-      subtitle: 'Là event, không phải entity',
+      title: 'NOT persisted independently',
+      subtitle: 'An event, not an entity',
       position: { x: COL * 2.5, y: ROW * 3.6 },
       inputs: [],
       outputs: [],
       details:
-        'ExtraUpdate/ExtraQuote không có Redis/Mongo store riêng — chỉ để mutate 3 target khác (SymbolInfo, ForeignerDaily, SymbolDaily). Sau khi xử lý xong object tan biến — không tìm lại được từng event riêng lẻ.\n\nNếu cần audit, phải nhìn vào SymbolInfo field updatedBy="ExtraUpdate" hoặc Kafka __consumer_offsets.',
+        'ExtraUpdate/ExtraQuote has no dedicated Redis/Mongo store — it exists only to mutate 3 other targets (SymbolInfo, ForeignerDaily, SymbolDaily). After processing, the object disappears — individual events cannot be retrieved later.\n\nIf auditing is needed, inspect SymbolInfo\'s updatedBy="ExtraUpdate" field or Kafka __consumer_offsets.',
     },
   ],
   edges: [
@@ -2367,7 +2367,7 @@ const lifecycleDealNotice = {
   category: 'lifecycle',
   title: 'Lifecycle · DealNotice',
   subtitle:
-    'Thỏa thuận đã khớp · đồng thời là nguồn PT summary · raw dealNoticeUpdate + sinh ExtraUpdate · history theo market',
+    'Matched put-through deals · also a PT summary source · raw dealNoticeUpdate + emits ExtraUpdate · history per market',
   accent: '#14b8a6',
   nodes: [
     {
@@ -2375,33 +2375,33 @@ const lifecycleDealNotice = {
       kind: 'source',
       layer: 'Lotte WS',
       title: 'put-through matched feed',
-      subtitle: 'Deal đã khớp',
+      subtitle: 'Matched deal',
       position: { x: 0, y: ROW },
       inputs: [{ name: 'subscribe', type: 'WS', description: '' }],
       outputs: [{ name: 'raw deal line', type: 'string', description: '' }],
       details:
-        'Lotte bắn event mỗi khi 1 thỏa thuận put-through (mua/bán khối lượng lớn thỏa thuận) được khớp chính thức. Mỗi event mang confirmNumber duy nhất do sàn cấp.',
+        'Lotte emits an event each time a put-through (large-volume negotiated buy/sell) is officially matched. Each event carries a unique confirmNumber issued by the exchange.',
     },
     {
       id: 'collector',
       kind: 'logic',
       layer: 'Collector',
       title: 'DealNoticeData + ExtraUpdate.fromDealNotice()',
-      subtitle: '2 publish song song',
+      subtitle: '2 parallel publishes',
       position: { x: COL, y: ROW },
       inputs: [{ name: 'raw', type: 'string', description: '' }],
       outputs: [
         { name: 'dealNoticeUpdate (raw)', type: 'Kafka', description: '' },
-        { name: 'extraUpdate { ptVolume, ptValue }', type: 'Kafka', description: 'tích lũy' },
+        { name: 'extraUpdate { ptVolume, ptValue }', type: 'Kafka', description: 'accumulated' },
       ],
       details:
-        'Collector xử lý 1 deal thành 2 message:\n\n' +
+        'The collector turns 1 deal into 2 messages:\n\n' +
         '  1. DealNoticeData raw:\n' +
-        '     – publish dealNoticeUpdate để realtime-v2 ghi history + ws-v2 broadcast\n' +
+        '     – publish dealNoticeUpdate so realtime-v2 records history + ws-v2 broadcasts\n' +
         '  2. ExtraUpdate.fromDealNotice():\n' +
-        '     – tạo ExtraUpdate có ptVolume=deal.volume, ptValue=deal.value\n' +
-        '     – publish extraUpdate để ExtraQuoteService cộng dồn vào SymbolInfo.ptTradingVolume/Value\n\n' +
-        'Tách 2 topic tránh coupling: consumer nào chỉ cần 1 loại có thể skip loại kia.',
+        '     – build ExtraUpdate with ptVolume=deal.volume, ptValue=deal.value\n' +
+        '     – publish extraUpdate so ExtraQuoteService accumulates into SymbolInfo.ptTradingVolume/Value\n\n' +
+        'Split across 2 topics to avoid coupling: a consumer needing only one type can skip the other.',
     },
     {
       id: 'kafka-deal',
@@ -2413,46 +2413,46 @@ const lifecycleDealNotice = {
       inputs: [{ name: 'collector producer', type: 'Kafka', description: '' }],
       outputs: [{ name: 'realtime-v2 + ws-v2', type: 'Kafka', description: '' }],
       details:
-        'Raw deal — consumer realtime-v2 ghi history, ws-v2 broadcast.',
+        'Raw deal — realtime-v2 writes history, ws-v2 broadcasts.',
     },
     {
       id: 'kafka-extra',
       kind: 'kafka',
       layer: 'Kafka',
       title: 'extraUpdate',
-      subtitle: 'Sang lifecycle Extra',
+      subtitle: 'Goes into the Extra lifecycle',
       position: { x: COL * 2, y: ROW * 1.8 },
       inputs: [{ name: 'collector producer', type: 'Kafka', description: '' }],
       outputs: [{ name: '→ ExtraQuoteService', type: 'link', description: '' }],
       details:
-        'ExtraQuote từ deal — xem lifecycle ExtraUpdate (source 4/5). Sẽ mutate SymbolInfo.ptTradingVolume/Value.',
+        'ExtraQuote from a deal — see the ExtraUpdate lifecycle (source 4/5). Will mutate SymbolInfo.ptTradingVolume/Value.',
     },
     {
       id: 'service',
       kind: 'logic',
       layer: 'DealNoticeService',
       title: 'updateDealNotice()',
-      subtitle: '7 bước — dedupe quan trọng',
+      subtitle: '7 steps — dedupe is critical',
       position: { x: COL * 3.2, y: ROW * 0.5 },
       inputs: [{ name: 'DealNotice', type: 'object', description: '' }],
       outputs: [
-        { name: '1) ensure SymbolInfo tồn tại', type: 'check', description: '' },
-        { name: '2) load all DealNotice hiện có', type: 'read', description: '' },
-        { name: '3) dedupe theo confirmNumber', type: 'compute', description: '' },
+        { name: '1) ensure SymbolInfo exists', type: 'check', description: '' },
+        { name: '2) load all existing DealNotice entries', type: 'read', description: '' },
+        { name: '3) dedupe by confirmNumber', type: 'compute', description: '' },
         { name: '4) ConvertUtils.updateByDealNotice(symbolInfo, deal)', type: 'merge', description: '' },
         { name: '5) HSET realtime_mapSymbolInfo[code]', type: 'Redis', description: '' },
         { name: '6) set dealNotice.id / date / timestamps', type: 'set', description: '' },
         { name: '7) RPUSH realtime_listDealNotice_{market}', type: 'Redis', description: '' },
       ],
       details:
-        'Chi tiết:\n\n' +
-        '  1. SymbolInfo phải load rồi (deal phải thuộc 1 mã đã biết), không → skip\n' +
-        '  2. Đọc realtime_listDealNotice_{market} để kiểm tra deal đã có chưa\n' +
-        '  3. Dedupe: Lotte có thể resend cùng deal (cùng confirmNumber) — chỉ xử lý nếu CHƯA có\n' +
-        '  4. ConvertUtils.updateByDealNotice merge vào SymbolInfo:\n' +
+        'Details:\n\n' +
+        '  1. SymbolInfo must already be loaded (the deal must belong to a known symbol); otherwise → skip\n' +
+        '  2. Read realtime_listDealNotice_{market} to check whether the deal already exists\n' +
+        '  3. Dedupe: Lotte may resend the same deal (same confirmNumber) — only process if NOT already present\n' +
+        '  4. ConvertUtils.updateByDealNotice merges into SymbolInfo:\n' +
         '     – symbolInfo.ptTradingVolume += deal.volume\n' +
         '     – symbolInfo.ptTradingValue += deal.value\n' +
-        '     (realtime-v2 cũng compute lại độc lập với collector để phòng duplicate)\n' +
+        '     (realtime-v2 also recomputes independently from the collector to guard against duplicates)\n' +
         '  5-7. HSET SymbolInfo + set metadata + RPUSH history list',
     },
     {
@@ -2465,8 +2465,8 @@ const lifecycleDealNotice = {
       inputs: [{ name: 'RPUSH', type: 'Redis', description: '' }],
       outputs: [{ name: 'deal history', type: 'list', description: '' }],
       details:
-        'Key theo market (HOSE/HNX/UPCOM), không theo code — client xem "các deal mới nhất toàn sàn" chỉ cần 1 LRANGE.\n\n' +
-        'Docs có đoạn mô tả key theo code — nếu cần chính xác tuyệt đối phải verify code thực tế.',
+        'Key is per market (HOSE/HNX/UPCOM), not per code — client viewing "latest deals across the exchange" needs only 1 LRANGE.\n\n' +
+        'Some docs describe a per-code key — for absolute accuracy verify against the actual code.',
     },
     {
       id: 'r-info',
@@ -2476,9 +2476,9 @@ const lifecycleDealNotice = {
       subtitle: 'ptTradingVolume / ptTradingValue',
       position: { x: COL * 4.6, y: ROW * 1.2 },
       inputs: [{ name: 'HSET', type: 'Redis', description: '' }],
-      outputs: [{ name: 'qua lifecycle SymbolInfo', type: 'link', description: '' }],
+      outputs: [{ name: 'via the SymbolInfo lifecycle', type: 'link', description: '' }],
       details:
-        'Xem lifecycle SymbolInfo. DealNotice là mutator thứ 6 (cùng với Init/Quote/BidOffer/Extra/MarketStatus).',
+        'See SymbolInfo lifecycle. DealNotice is the 6th mutator (along with Init/Quote/BidOffer/Extra/MarketStatus).',
     },
     {
       id: 'q',
@@ -2489,11 +2489,11 @@ const lifecycleDealNotice = {
       position: { x: COL * 6, y: 0 },
       inputs: [{ name: 'LRANGE realtime_listDealNotice', type: 'Redis', description: '' }],
       outputs: [
-        { name: 'queryPutThroughDeal', type: 'endpoint', description: 'list deal' },
-        { name: 'queryPtDealTotal', type: 'endpoint', description: 'tổng hợp PT toàn sàn' },
+        { name: 'queryPutThroughDeal', type: 'endpoint', description: 'deal list' },
+        { name: 'queryPtDealTotal', type: 'endpoint', description: 'market-wide PT totals' },
       ],
       details:
-        'Client mở tab Thỏa thuận — 1 LRANGE lấy last N deals, hoặc aggregate tổng ptVolume/Value toàn sàn từ cùng list.',
+        'When the client opens the Put-through tab — 1 LRANGE fetches the last N deals, or aggregate ptVolume/Value across the market from the same list.',
     },
     {
       id: 'wsv2',
@@ -2505,7 +2505,7 @@ const lifecycleDealNotice = {
       inputs: [{ name: 'consume dealNoticeUpdate', type: 'Kafka', description: '' }],
       outputs: [{ name: 'publish market.putthrough.deal.{market}', type: 'channel', description: '' }],
       details:
-        'Channel theo market để client tab Thỏa thuận nhận deal mới realtime mà không reload.',
+        'Per-market channel so the Put-through tab receives new deals in realtime without reloading.',
     },
     {
       id: 'cron-persist',
@@ -2517,7 +2517,7 @@ const lifecycleDealNotice = {
       inputs: [{ name: '@Scheduled', type: 'cron', description: '' }],
       outputs: [{ name: 'deal lists → c_deal_notice', type: 'Mongo', description: '' }],
       details:
-        'LRANGE all realtime_listDealNotice_* → bulk write c_deal_notice theo _id = confirmNumber (idempotent).',
+        'LRANGE all realtime_listDealNotice_* → bulk write c_deal_notice keyed by _id = confirmNumber (idempotent).',
     },
     {
       id: 'cron-reset',
@@ -2529,7 +2529,7 @@ const lifecycleDealNotice = {
       inputs: [{ name: '@Scheduled', type: 'cron', description: '' }],
       outputs: [{ name: 'clear deal notice lists', type: 'del', description: '' }],
       details:
-        'Xoá list để ngày mới bắt đầu rỗng. Các deal cũ đã được persist ở c_deal_notice từ saveRedisToDatabase các khung trước.',
+        'Clears the list so the new day starts empty. Old deals have already been persisted to c_deal_notice in the earlier saveRedisToDatabase runs.',
     },
   ],
   edges: [
@@ -2554,7 +2554,7 @@ const lifecycleAdvertised = {
   category: 'lifecycle',
   title: 'Lifecycle · Advertised',
   subtitle:
-    'Rao bán thỏa thuận · chỉ có history list theo market · không mutate SymbolInfo',
+    'Put-through advertise offers · history list per market only · does not mutate SymbolInfo',
   accent: '#0ea5e9',
   nodes: [
     {
@@ -2562,12 +2562,12 @@ const lifecycleAdvertised = {
       kind: 'source',
       layer: 'Lotte WS',
       title: 'advertised feed',
-      subtitle: 'Đặt lệnh rao bán',
+      subtitle: 'Advertise order',
       position: { x: 0, y: ROW },
       inputs: [{ name: 'subscribe', type: 'WS', description: '' }],
       outputs: [{ name: 'raw advertise line', type: 'string', description: '' }],
       details:
-        'Khi có công ty/người đăng "rao bán" khối lượng lớn (chưa khớp), Lotte bắn event. Khác DealNotice là đã khớp, Advertised chỉ là offer đang chờ đối tác.',
+        'When a firm/person posts a large-volume advertise (not yet matched), Lotte emits an event. Unlike DealNotice (already matched), Advertised is just an offer awaiting a counterparty.',
     },
     {
       id: 'collector',
@@ -2579,7 +2579,7 @@ const lifecycleAdvertised = {
       inputs: [{ name: 'raw', type: 'string', description: '' }],
       outputs: [{ name: 'advertisedUpdate', type: 'Kafka', description: '' }],
       details:
-        'Parse raw → build AdvertisedData { code, market, side (BUY/SELL), price, volume, customer, time, ... } → sendMessageSafe("advertisedUpdate"). Không publish ExtraUpdate vì chưa khớp nên không ảnh hưởng PT summary.',
+        'Parse raw → build AdvertisedData { code, market, side (BUY/SELL), price, volume, customer, time, ... } → sendMessageSafe("advertisedUpdate"). Does NOT publish ExtraUpdate because the offer is unmatched and does not affect PT summary.',
     },
     {
       id: 'kafka',
@@ -2590,14 +2590,14 @@ const lifecycleAdvertised = {
       position: { x: COL * 2, y: ROW },
       inputs: [{ name: 'producer', type: 'Kafka', description: '' }],
       outputs: [{ name: 'realtime-v2 + ws-v2', type: 'Kafka', description: '' }],
-      details: 'Tần suất thấp — chỉ khi có đơn rao bán mới đăng.',
+      details: 'Low frequency — only when a new advertise order is posted.',
     },
     {
       id: 'service',
       kind: 'logic',
       layer: 'AdvertisedService',
       title: 'updateAdvertised()',
-      subtitle: 'Chỉ RPUSH',
+      subtitle: 'Only RPUSH',
       position: { x: COL * 3, y: ROW },
       inputs: [{ name: 'Advertised', type: 'object', description: '' }],
       outputs: [
@@ -2605,11 +2605,11 @@ const lifecycleAdvertised = {
         { name: 'RPUSH realtime_listAdvertised_{market}', type: 'Redis', description: '' },
       ],
       details:
-        'Service đơn giản nhất trong các lifecycle:\n' +
+        'The simplest service across all lifecycles:\n' +
         '  1. Set id = code_yyyyMMddHHmmss_random\n' +
         '  2. Set date + createdAt + updatedAt\n' +
         '  3. RPUSH realtime_listAdvertised_{market}\n\n' +
-        'KHÔNG mutate SymbolInfo vì advertised chưa khớp.',
+        'Does NOT mutate SymbolInfo because advertised offers are unmatched.',
     },
     {
       id: 'r',
@@ -2621,7 +2621,7 @@ const lifecycleAdvertised = {
       inputs: [{ name: 'RPUSH', type: 'Redis', description: '' }],
       outputs: [{ name: 'advertise history', type: 'list', description: '' }],
       details:
-        'List theo market — giống dealNotice. Không có key theo code vì advertise ít, client xem tổng hợp toàn sàn.',
+        'List per market — same as dealNotice. No per-code key because advertises are infrequent and the client views the exchange-wide aggregate.',
     },
     {
       id: 'q',
@@ -2633,7 +2633,7 @@ const lifecycleAdvertised = {
       inputs: [{ name: 'LRANGE', type: 'Redis', description: '' }],
       outputs: [{ name: 'queryPutThroughAdvertise', type: 'endpoint', description: '' }],
       details:
-        'Client mở tab Rao bán thỏa thuận — 1 LRANGE lấy list rao bán hôm nay của sàn.',
+        'Client opens the Advertise tab — 1 LRANGE fetches today\'s advertises for the exchange.',
     },
     {
       id: 'wsv2',
@@ -2645,7 +2645,7 @@ const lifecycleAdvertised = {
       inputs: [{ name: 'consume advertisedUpdate', type: 'Kafka', description: '' }],
       outputs: [{ name: 'publish market.putthrough.advertise.{market}', type: 'channel', description: '' }],
       details:
-        'Channel realtime cho tab "Rao bán" không cần reload.',
+        'Realtime channel so the "Advertise" tab doesn\'t need reloading.',
     },
     {
       id: 'cron-persist',
@@ -2657,7 +2657,7 @@ const lifecycleAdvertised = {
       inputs: [{ name: '@Scheduled', type: 'cron', description: '' }],
       outputs: [{ name: 'advertise lists → c_advertise', type: 'Mongo', description: '' }],
       details:
-        'LRANGE realtime_listAdvertised_* → bulk write c_advertise để audit.',
+        'LRANGE realtime_listAdvertised_* → bulk write c_advertise for audit.',
     },
     {
       id: 'cron-reset',
@@ -2669,7 +2669,7 @@ const lifecycleAdvertised = {
       inputs: [{ name: '@Scheduled', type: 'cron', description: '' }],
       outputs: [{ name: 'clear advertised lists', type: 'del', description: '' }],
       details:
-        'Xoá list để ngày mới sạch. Data đã được persist ở c_advertise từ các cron saveRedisToDatabase trước đó.',
+        'Clears the list so the new day starts clean. Data has already been persisted to c_advertise in the previous saveRedisToDatabase cron runs.',
     },
   ],
   edges: [
@@ -2692,7 +2692,7 @@ const lifecycleSymbolPrevious = {
   category: 'lifecycle',
   title: 'Lifecycle · SymbolPrevious',
   subtitle:
-    'Hậu xử lý — KHÔNG đến từ feed · updateSymbolPrevious chạy trong saveRedisToDatabase · nối phiên hôm nay ↔ phiên trước',
+    'Post-process — NOT from a feed · updateSymbolPrevious runs inside saveRedisToDatabase · bridges today\'s session ↔ previous session',
   accent: '#7dd3fc',
   nodes: [
     {
@@ -2700,12 +2700,12 @@ const lifecycleSymbolPrevious = {
       kind: 'redis',
       layer: 'Source',
       title: 'realtime_mapSymbolDaily',
-      subtitle: 'Input cho previous',
+      subtitle: 'Input for previous',
       position: { x: 0, y: ROW },
-      inputs: [{ name: 'HGET hôm nay', type: 'Redis', description: '' }],
+      inputs: [{ name: 'HGET today', type: 'Redis', description: '' }],
       outputs: [{ name: 'SymbolDaily.last + SymbolDaily.date', type: 'read', description: '' }],
       details:
-        'SymbolPrevious LOOKUP SymbolDaily hôm nay để biết giá đóng cửa cần cập nhật. Chỉ đọc sau khi cron saveRedisToDatabase chạy (daily đã mới nhất).',
+        'SymbolPrevious LOOKS UP today\'s SymbolDaily to know the close price to update. Only read after the saveRedisToDatabase cron has run (daily is now the latest).',
     },
     {
       id: 'cron',
@@ -2715,36 +2715,36 @@ const lifecycleSymbolPrevious = {
       subtitle: '6×/day',
       position: { x: COL, y: ROW },
       inputs: [{ name: '@Scheduled', type: 'cron', description: '' }],
-      outputs: [{ name: 'kích hoạt logic compare', type: 'call', description: '' }],
+      outputs: [{ name: 'trigger compare logic', type: 'call', description: '' }],
       details:
-        'updateSymbolPrevious() là step cuối cùng trong pipeline saveRedisToDatabase. Sau khi SymbolDaily hôm nay đã được bulk-write sang Mongo, method này đảm bảo SymbolPrevious luôn đồng bộ.',
+        'updateSymbolPrevious() is the final step of the saveRedisToDatabase pipeline. After today\'s SymbolDaily has been bulk-written to Mongo, this method keeps SymbolPrevious in sync.',
     },
     {
       id: 'logic',
       kind: 'logic',
       layer: 'Compare logic',
       title: 'updateSymbolPrevious()',
-      subtitle: 'Same date vs khác date',
+      subtitle: 'Same date vs different date',
       position: { x: COL * 2, y: ROW },
       inputs: [
-        { name: 'SymbolDaily hôm nay', type: 'object', description: '' },
-        { name: 'SymbolPrevious hiện có', type: 'object', description: '' },
+        { name: 'today\'s SymbolDaily', type: 'object', description: '' },
+        { name: 'existing SymbolPrevious', type: 'object', description: '' },
       ],
       outputs: [
-        { name: 'IF sameDate → chỉ update close', type: 'branch', description: '' },
-        { name: 'ELSE → previousClose = close cũ · previousTradingDate = lastTradingDate cũ · close = daily.last · lastTradingDate = daily.date', type: 'branch', description: '' },
+        { name: 'IF sameDate → only update close', type: 'branch', description: '' },
+        { name: 'ELSE → previousClose = old close · previousTradingDate = old lastTradingDate · close = daily.last · lastTradingDate = daily.date', type: 'branch', description: '' },
       ],
       details:
-        'Logic compare:\n\n' +
-        '  • Nếu SymbolPrevious.lastTradingDate == SymbolDaily.date (cùng ngày giao dịch) → sameDate = true\n' +
-        '      – CHỈ update close = daily.last (thực hiện khi intraday, cron chạy nhiều lần/ngày)\n' +
-        '      – Không touching previousClose / previousTradingDate\n\n' +
-        '  • Nếu khác ngày → RỘNG HƠN:\n' +
-        '      – previousClose   = close cũ (close của phiên trước)\n' +
-        '      – previousTradingDate = lastTradingDate cũ\n' +
-        '      – close           = daily.last (ngày hiện tại)\n' +
-        '      – lastTradingDate = daily.date (ngày hiện tại)\n\n' +
-        '  Đây là cơ chế "advance" phiên — chỉ khi phát hiện ngày giao dịch mới.',
+        'Compare logic:\n\n' +
+        '  • If SymbolPrevious.lastTradingDate == SymbolDaily.date (same trading day) → sameDate = true\n' +
+        '      – ONLY update close = daily.last (done during intraday, cron runs multiple times/day)\n' +
+        '      – Do not touch previousClose / previousTradingDate\n\n' +
+        '  • If different day → BROADER:\n' +
+        '      – previousClose   = old close (previous session\'s close)\n' +
+        '      – previousTradingDate = old lastTradingDate\n' +
+        '      – close           = daily.last (today)\n' +
+        '      – lastTradingDate = daily.date (today)\n\n' +
+        '  This is the "advance" session mechanism — triggered only when a new trading day is detected.',
     },
     {
       id: 'mongo',
@@ -2754,22 +2754,22 @@ const lifecycleSymbolPrevious = {
       subtitle: 'Day-level',
       position: { x: COL * 3, y: ROW },
       inputs: [{ name: 'upsert', type: 'Mongo', description: '' }],
-      outputs: [{ name: 'client tính biến động so với phiên trước', type: 'read', description: '' }],
+      outputs: [{ name: 'client computes change vs previous session', type: 'read', description: '' }],
       details:
         'Shape: { code, close, lastTradingDate, previousClose, previousTradingDate, updatedAt }.\n\n' +
-        'Khác referencePrice (tham chiếu của sàn có thể ≠ giá đóng cửa thực tế trong 1 số trường hợp cổ tức/chia tách). previousClose là giá đóng cửa THỰC TẾ phiên trước.',
+        'Different from referencePrice (the exchange\'s reference, which may ≠ actual close in some dividend/split cases). previousClose is the ACTUAL close price from the previous session.',
     },
     {
       id: 'note',
       kind: 'config',
       layer: 'Note',
-      title: 'Không có Redis key riêng',
-      subtitle: 'Chỉ lưu Mongo',
+      title: 'No dedicated Redis key',
+      subtitle: 'Mongo only',
       position: { x: COL * 2, y: ROW * 2.2 },
       inputs: [],
       outputs: [],
       details:
-        'SymbolPrevious KHÔNG có hot state Redis — vì không cần update realtime mỗi tick. Chỉ update 6×/day đủ dùng.\n\nClient-side query trực tiếp Mongo khi cần (thường join với SymbolInfo để tính % change so với previous).',
+        'SymbolPrevious has NO hot state in Redis — it does not need a realtime update per tick. Updating 6×/day is sufficient.\n\nThe client queries Mongo directly when needed (typically joining with SymbolInfo to compute % change vs previous).',
     },
   ],
   edges: [
@@ -2787,23 +2787,23 @@ const lifecycleSymbolInfoExtend = {
   category: 'lifecycle',
   title: 'Lifecycle · symbolInfoExtend',
   subtitle:
-    'Static extension data · KHÔNG mutate theo tick · merge với realtime_mapSymbolInfo trong querySymbolStaticInfo',
+    'Static extension data · does NOT mutate per tick · merged with realtime_mapSymbolInfo inside querySymbolStaticInfo',
   accent: '#94a3b8',
   nodes: [
     {
       id: 'src',
       kind: 'source',
-      layer: 'Ingest (ngoài flow realtime chính)',
+      layer: 'Ingest (outside the main realtime flow)',
       title: 'Static feed / admin job',
       subtitle: 'listedQty / avgTradingVol10 / reference/floor/ceiling...',
       position: { x: 0, y: ROW },
-      inputs: [{ name: 'không rõ trigger realtime trong context', type: 'note', description: '' }],
+      inputs: [{ name: 'realtime trigger unclear from context', type: 'note', description: '' }],
       outputs: [{ name: 'symbolInfoExtend record', type: 'object', description: '' }],
       details:
-        'Docs không mô tả rõ path mutate theo tick. Giả định: đây là data static (listedQty, avgTradingVol10 ngày, reference/floor/ceiling ngày, basicPrice...) được load từ:\n' +
-        '  • Admin batch job đầu ngày\n' +
-        '  • Hoặc ingest từ feed khác (Lotte batch, core system)\n\n' +
-        'Hiện tại coi như static support — không có code path mutate trong flow realtime chính.',
+        'Docs do not clearly describe the per-tick mutation path. Assumption: this is static data (listedQty, 10-day avgTradingVol, daily reference/floor/ceiling, basicPrice...) loaded from:\n' +
+        '  • Start-of-day admin batch job\n' +
+        '  • Or ingested from another feed (Lotte batch, core system)\n\n' +
+        'Currently treated as static support — no mutation code path in the main realtime flow.',
     },
     {
       id: 'r',
@@ -2812,17 +2812,17 @@ const lifecycleSymbolInfoExtend = {
       title: 'symbolInfoExtend',
       subtitle: 'Hash by code',
       position: { x: COL, y: ROW },
-      inputs: [{ name: 'HSET (batch admin)', type: 'Redis', description: '' }],
+      inputs: [{ name: 'HSET (admin batch)', type: 'Redis', description: '' }],
       outputs: [{ name: 'static support fields', type: 'hash', description: '' }],
       details:
-        'Key trống không prefix "realtime_" — ngụ ý data không phải hot realtime. Field: listedQty, avgTradingVol10, referencePrice/floor/ceiling, basicPrice, tradingUnit, lotSize, ...',
+        'The key has no "realtime_" prefix — implying the data is not realtime-hot. Fields: listedQty, avgTradingVol10, referencePrice/floor/ceiling, basicPrice, tradingUnit, lotSize, ...',
     },
     {
       id: 'q',
       kind: 'api',
       layer: 'Delivery',
       title: 'querySymbolStaticInfo()',
-      subtitle: 'Merge với realtime_mapSymbolInfo',
+      subtitle: 'Merge with realtime_mapSymbolInfo',
       position: { x: COL * 2, y: ROW },
       inputs: [
         { name: 'realtime_mapSymbolInfo[code]', type: 'Redis', description: '' },
@@ -2833,15 +2833,15 @@ const lifecycleSymbolInfoExtend = {
       ],
       details:
         'Query logic:\n' +
-        '  1. HMGET realtime_mapSymbolInfo (field realtime)\n' +
-        '  2. HMGET symbolInfoExtend (field static)\n' +
-        '  3. MERGE 2 object — ưu tiên field từ realtime_mapSymbolInfo nếu conflict\n' +
-        '  4. Trả về cho client màn "Thông tin cơ bản" của mã.',
+        '  1. HMGET realtime_mapSymbolInfo (realtime fields)\n' +
+        '  2. HMGET symbolInfoExtend (static fields)\n' +
+        '  3. MERGE the two objects — fields from realtime_mapSymbolInfo take precedence on conflict\n' +
+        '  4. Return to the client\'s "Basic info" screen for the symbol.',
     },
   ],
   edges: [
     { source: 'src', target: 'r', label: 'HSET (static)' },
-    { source: 'r', target: 'q', label: 'merge với SymbolInfo' },
+    { source: 'r', target: 'q', label: 'merge with SymbolInfo' },
   ],
 };
 
@@ -2853,7 +2853,7 @@ const lifecycleIndexStockList = {
   category: 'lifecycle',
   title: 'Lifecycle · IndexStockList',
   subtitle:
-    'Thành phần chỉ số · admin/collector publish indexStockListUpdate · persist Mongo · getIndexRanks() join với Redis SymbolInfo',
+    'Index basket composition · admin/collector publishes indexStockListUpdate · persisted in Mongo · getIndexRanks() joins with Redis SymbolInfo',
   accent: '#fde68a',
   nodes: [
     {
@@ -2861,15 +2861,15 @@ const lifecycleIndexStockList = {
       kind: 'logic',
       layer: 'Collector / Admin job',
       title: 'publish indexStockListUpdate',
-      subtitle: 'Khi cấu trúc rổ đổi',
+      subtitle: 'When the basket composition changes',
       position: { x: 0, y: ROW },
-      inputs: [{ name: 'admin trigger hoặc collector init', type: 'call', description: '' }],
+      inputs: [{ name: 'admin trigger or collector init', type: 'call', description: '' }],
       outputs: [{ name: 'IndexStockList payload', type: 'object', description: '' }],
       details:
-        'Event được publish khi:\n' +
-        '  • Admin cập nhật rổ VN30/HNX30/VN100 khi sàn review định kỳ\n' +
-        '  • Collector đầu ngày sync lại từ Lotte indexs-list nếu phát hiện đổi cấu trúc\n\n' +
-        'Không phát theo tick — tần suất rất thấp (vài lần/tháng).',
+        'The event is published when:\n' +
+        '  • An admin updates the VN30/HNX30/VN100 basket after an exchange review\n' +
+        '  • The start-of-day collector re-syncs from Lotte indexs-list if a composition change is detected\n\n' +
+        'Not tick-triggered — very low frequency (a few times per month).',
     },
     {
       id: 'kafka',
@@ -2881,7 +2881,7 @@ const lifecycleIndexStockList = {
       inputs: [{ name: 'producer', type: 'Kafka', description: '' }],
       outputs: [{ name: 'realtime-v2 consumer', type: 'Kafka', description: '' }],
       details:
-        'Topic riêng để phân biệt với symbolInfoUpdate. Consumer chỉ có realtime-v2, không phải ws-v2 (client không cần realtime cho cấu trúc rổ).',
+        'Dedicated topic, separate from symbolInfoUpdate. Consumed only by realtime-v2, not ws-v2 (clients do not need realtime basket composition).',
     },
     {
       id: 'handler',
@@ -2897,9 +2897,9 @@ const lifecycleIndexStockList = {
       ],
       details:
         'Logic:\n' +
-        '  1. Normalize indexCode (ví dụ "vn30" → "VN30", xoá khoảng trắng)\n' +
-        '  2. Upsert vào IndexStockList collection theo _id = indexCode\n' +
-        '  3. Không HSET Redis vì data static, đọc Mongo mỗi lần query cũng OK.',
+        '  1. Normalize indexCode (e.g. "vn30" → "VN30", trim whitespace)\n' +
+        '  2. Upsert into the IndexStockList collection keyed by _id = indexCode\n' +
+        '  3. No HSET in Redis because the data is static; reading Mongo on each query is fine.',
     },
     {
       id: 'mongo',
@@ -2909,7 +2909,7 @@ const lifecycleIndexStockList = {
       subtitle: 'Mongo collection',
       position: { x: COL * 3, y: ROW },
       inputs: [{ name: 'upsert', type: 'Mongo', description: '' }],
-      outputs: [{ name: 'danh sách mã trong rổ', type: 'read', description: '' }],
+      outputs: [{ name: 'symbol list in the basket', type: 'read', description: '' }],
       details:
         'Shape: { _id: indexCode, codes: ["VIC","VHM","HPG",...], weights: [0.08, 0.07, ...], updatedAt }.',
     },
@@ -2922,19 +2922,19 @@ const lifecycleIndexStockList = {
       position: { x: COL * 4, y: 0 },
       inputs: [
         { name: 'IndexStockList (Mongo)', type: 'Mongo', description: '' },
-        { name: 'realtime_mapSymbolInfo (Redis)', type: 'Redis', description: 'cho mỗi mã' },
+        { name: 'realtime_mapSymbolInfo (Redis)', type: 'Redis', description: 'per symbol' },
       ],
       outputs: [
-        { name: 'sort theo rate / tradingValue', type: 'compute', description: '' },
-        { name: 'trả ranking trong index', type: 'response', description: '' },
+        { name: 'sort by rate / tradingValue', type: 'compute', description: '' },
+        { name: 'return ranking within the index', type: 'response', description: '' },
       ],
       details:
-        'Hot path khi client mở tab "Chi tiết rổ VN30":\n' +
-        '  1. Find IndexStockList by indexCode → lấy mảng codes[]\n' +
-        '  2. HMGET realtime_mapSymbolInfo với codes[] → lấy snapshot của mọi mã trong rổ\n' +
-        '  3. Sort theo tiêu chí client yêu cầu (rate desc, tradingValue desc, ...)\n' +
-        '  4. Trả response có rank + SymbolInfo compact\n\n' +
-        'Đây là điểm JOIN cross-store — giảm được round-trip bằng cách HMGET 1 lần cho tất cả mã.',
+        'Hot path when the client opens the "VN30 basket details" tab:\n' +
+        '  1. Find IndexStockList by indexCode → get the codes[] array\n' +
+        '  2. HMGET realtime_mapSymbolInfo with codes[] → get snapshots of every symbol in the basket\n' +
+        '  3. Sort by the client criterion (rate desc, tradingValue desc, ...)\n' +
+        '  4. Return a response with rank + compact SymbolInfo\n\n' +
+        'This is a cross-store JOIN — round-trips are reduced by HMGETting all symbols in one call.',
     },
     {
       id: 'q',
@@ -2945,18 +2945,18 @@ const lifecycleIndexStockList = {
       position: { x: COL * 4, y: ROW * 1.4 },
       inputs: [{ name: 'call getIndexRanks', type: 'call', description: '' }],
       outputs: [
-        { name: 'queryIndexList', type: 'endpoint', description: 'danh sách rổ available' },
-        { name: 'queryIndexStockList', type: 'endpoint', description: 'ranking trong 1 rổ' },
+        { name: 'queryIndexList', type: 'endpoint', description: 'available baskets' },
+        { name: 'queryIndexStockList', type: 'endpoint', description: 'ranking inside a basket' },
       ],
       details:
-        'queryIndexList trả meta các rổ (VN30, HNX30, VN100...). queryIndexStockList trả ranking trong rổ chọn — delegate sang IndexStockService.getIndexRanks().',
+        'queryIndexList returns basket metadata (VN30, HNX30, VN100...). queryIndexStockList returns the ranking within a chosen basket — delegating to IndexStockService.getIndexRanks().',
     },
   ],
   edges: [
     { source: 'src', target: 'kafka', label: 'publish', animated: true },
     { source: 'kafka', target: 'handler', label: 'consume', animated: true },
     { source: 'handler', target: 'mongo', label: 'upsert' },
-    { source: 'mongo', target: 'rank', label: 'find rổ' },
+    { source: 'mongo', target: 'rank', label: 'find basket' },
     { source: 'rank', target: 'q', label: 'response' },
   ],
 };
@@ -2969,7 +2969,7 @@ const lifecycleResetPersist = {
   category: 'lifecycle',
   title: 'Lifecycle · Reset & Persist (cross-cutting)',
   subtitle:
-    '4 cron job cắt ngang lifecycle các object · removeAutoData (00:55) · refreshSymbolInfo (01:35) · clearOldSymbolDaily (22:50) · saveRedisToDatabase (6×/day)',
+    '4 cron jobs cutting across object lifecycles · removeAutoData (00:55) · refreshSymbolInfo (01:35) · clearOldSymbolDaily (22:50) · saveRedisToDatabase (6×/day)',
   accent: '#fb7185',
   nodes: [
     // Cron triggers
@@ -2993,9 +2993,9 @@ const lifecycleResetPersist = {
         { name: 'cacheService.reset()', type: 'reset', description: '' },
       ],
       details:
-        'Job dọn dẹp LỚN NHẤT — xoá toàn bộ realtime intraday data của ngày trước.\n\n' +
-        'Thời điểm 00:55 được chọn đủ xa giờ đóng cửa (15:00) để các cron saveRedisToDatabase đã chạy xong, đồng thời đủ sớm trước giờ mở cửa ngày mới (09:00).\n\n' +
-        'Cuối cùng cacheService.reset() xoá in-memory cache để tránh stale sau khi Redis bị flush.',
+        'The LARGEST cleanup job — deletes all previous-day realtime intraday data.\n\n' +
+        '00:55 is chosen to be far enough past close (15:00) that saveRedisToDatabase has finished, while still early enough before the next market open (09:00).\n\n' +
+        'Finally cacheService.reset() clears the in-memory cache to avoid staleness after Redis is flushed.',
     },
     {
       id: 'c2',
@@ -3014,8 +3014,8 @@ const lifecycleResetPersist = {
         { name: 'cacheService.reset()', type: 'reset', description: '' },
       ],
       details:
-        'Job "soft reset" — chỉ reset các field intraday CỦA SymbolInfo mà không xoá snapshot map.\n\n' +
-        'Lý do KHÔNG xoá: baseline SymbolInfo (code/name/type/referencePrice/ceiling/floor/listedQty/foreignerTotalRoom...) không đổi theo ngày, không cần init lại từ REST. Chỉ các field intraday (sequence, matching*, bidOfferList) cần reset.',
+        'A "soft reset" job — only resets intraday fields OF SymbolInfo without deleting the snapshot map.\n\n' +
+        'Why NOT delete: the SymbolInfo baseline (code/name/type/referencePrice/ceiling/floor/listedQty/foreignerTotalRoom...) does not change day-over-day and does not need to be re-initialized from REST. Only intraday fields (sequence, matching*, bidOfferList) need reset.',
     },
     {
       id: 'c3',
@@ -3030,8 +3030,8 @@ const lifecycleResetPersist = {
         { name: 'clear cache mapSymbolDaily', type: 'del', description: '' },
       ],
       details:
-        'Job nhỏ riêng cho SymbolDaily — thời điểm 22:50 (sau khi saveRedisToDatabase 14:29 đã ghi xong Mongo) đủ an toàn để xoá Redis.\n\n' +
-        'Sau job này, Redis mapSymbolDaily rỗng. Tick đầu tiên của ngày mới sẽ tạo lại record.',
+        'A small dedicated job for SymbolDaily — the 22:50 timing (after the 14:29 saveRedisToDatabase has written Mongo) is safe to clear Redis.\n\n' +
+        'After this job the Redis mapSymbolDaily is empty. The first tick of the new day will re-create the record.',
     },
     {
       id: 'c4',
@@ -3050,14 +3050,14 @@ const lifecycleResetPersist = {
         { name: 'DealNotice → c_deal_notice', type: 'Mongo', description: '' },
         { name: 'Advertised → c_advertise', type: 'Mongo', description: '' },
         { name: 'updateSymbolPrevious → c_symbol_previous', type: 'Mongo', description: '' },
-        { name: 'quote/minute/bid-ask: RUNTIME OFF — không persist', type: 'skip', description: '' },
+        { name: 'quote/minute/bid-ask: RUNTIME OFF — not persisted', type: 'skip', description: '' },
       ],
       details:
-        'Job persist LỚN — chạy 6 lần/ngày chia đều 3 khung:\n' +
+        'A LARGE persist job — runs 6 times/day spread across 3 windows:\n' +
         '  • Pre-lunch:  10:15, 10:29\n' +
         '  • Pre-close-lunch: 11:15, 11:29\n' +
         '  • Pre-market-close: 14:15, 14:29\n\n' +
-        'Mỗi lần chạy thực hiện tuần tự:\n' +
+        'Each run executes sequentially:\n' +
         '  1. HGETALL realtime_mapSymbolInfo → bulk write c_symbol_info\n' +
         '  2. HGETALL realtime_mapSymbolInfoOddLot → bulk write odd-lot collection\n' +
         '  3. HGETALL realtime_mapSymbolDaily → bulk write c_symbol_daily\n' +
@@ -3066,7 +3066,7 @@ const lifecycleResetPersist = {
         '  6. LRANGE realtime_listDealNotice_* → bulk write c_deal_notice\n' +
         '  7. LRANGE realtime_listAdvertised_* → bulk write c_advertise\n' +
         '  8. updateSymbolPrevious() → upsert c_symbol_previous\n\n' +
-        'SKIP: quote ticks, minute bars, bid-offer history — do feature flags OFF.',
+        'SKIPPED: quote ticks, minute bars, bid-offer history — due to OFF feature flags.',
     },
 
     // Target objects
@@ -3077,10 +3077,10 @@ const lifecycleResetPersist = {
       title: 'SymbolQuote + Meta',
       subtitle: 'Cleared 00:55',
       position: { x: COL * 2, y: 0 },
-      inputs: [{ name: 'cleared bởi removeAutoData', type: 'affected', description: '' }],
+      inputs: [{ name: 'cleared by removeAutoData', type: 'affected', description: '' }],
       outputs: [{ name: 'realtime_listQuote_* / realtime_listQuoteMeta_*', type: 'Redis', description: '' }],
       details:
-        'Tick list + partition meta. Không persist sang Mongo nên sau 00:55 tick hôm trước biến mất hoàn toàn.',
+        'Tick list + partition meta. Not persisted to Mongo, so previous-day ticks are completely gone after 00:55.',
     },
     {
       id: 'obj-minute',
@@ -3089,10 +3089,10 @@ const lifecycleResetPersist = {
       title: 'SymbolQuoteMinute',
       subtitle: 'Cleared 00:55',
       position: { x: COL * 2, y: ROW * 0.5 },
-      inputs: [{ name: 'cleared bởi removeAutoData', type: 'affected', description: '' }],
+      inputs: [{ name: 'cleared by removeAutoData', type: 'affected', description: '' }],
       outputs: [{ name: 'realtime_listQuoteMinute_*', type: 'Redis', description: '' }],
       details:
-        'Minute bars hôm trước bị xoá. enableSaveQuoteMinute=false nên không có lịch sử minute trong DB.',
+        'Previous-day minute bars are deleted. enableSaveQuoteMinute=false means no minute history exists in the DB.',
     },
     {
       id: 'obj-stat',
@@ -3101,10 +3101,10 @@ const lifecycleResetPersist = {
       title: 'SymbolStatistic',
       subtitle: 'Cleared 00:55',
       position: { x: COL * 2, y: ROW },
-      inputs: [{ name: 'cleared bởi removeAutoData', type: 'affected', description: '' }],
+      inputs: [{ name: 'cleared by removeAutoData', type: 'affected', description: '' }],
       outputs: [{ name: 'realtime_mapSymbolStatistic', type: 'Redis', description: '' }],
       details:
-        'Aggregate theo giá bị xoá. Ngày mới bắt đầu bucket giá rỗng.',
+        'Price-level aggregate is deleted. The new day starts with empty price buckets.',
     },
     {
       id: 'obj-bo',
@@ -3113,10 +3113,10 @@ const lifecycleResetPersist = {
       title: 'BidOffer lists + OddLot',
       subtitle: 'Clear 00:55 + reset 01:35',
       position: { x: COL * 2, y: ROW * 1.5 },
-      inputs: [{ name: 'cleared / reset partial', type: 'affected', description: '' }],
+      inputs: [{ name: 'cleared / partial reset', type: 'affected', description: '' }],
       outputs: [{ name: 'realtime_listBidOffer_* / realtime_listBidOfferOddLot_*', type: 'Redis', description: '' }],
       details:
-        'List bị xoá 00:55. refreshSymbolInfo 01:35 reset thêm bidOfferList trong SymbolInfo và oddlotBidOfferList trong SymbolInfoOddLot.',
+        'The list is deleted at 00:55. refreshSymbolInfo at 01:35 additionally resets bidOfferList inside SymbolInfo and oddlotBidOfferList inside SymbolInfoOddLot.',
     },
     {
       id: 'obj-deal',
@@ -3125,38 +3125,38 @@ const lifecycleResetPersist = {
       title: 'DealNotice / Advertised',
       subtitle: 'Cleared 00:55',
       position: { x: COL * 2, y: ROW * 2 },
-      inputs: [{ name: 'cleared bởi removeAutoData', type: 'affected', description: '' }],
+      inputs: [{ name: 'cleared by removeAutoData', type: 'affected', description: '' }],
       outputs: [{ name: 'realtime_listDealNotice_* / realtime_listAdvertised_*', type: 'Redis', description: '' }],
       details:
-        'List bị xoá. Data đã được persist sang c_deal_notice / c_advertise ở các lần saveRedisToDatabase trước đó — lịch sử vẫn truy được.',
+        'Lists are deleted. Data has already been persisted to c_deal_notice / c_advertise in prior saveRedisToDatabase runs — history remains queryable.',
     },
     {
       id: 'obj-info',
       kind: 'logic',
       layer: 'Object',
       title: 'SymbolInfo (partial reset)',
-      subtitle: 'refreshSymbolInfo KHÔNG xoá map',
+      subtitle: 'refreshSymbolInfo does NOT delete the map',
       position: { x: COL * 2, y: ROW * 2.5 },
-      inputs: [{ name: 'reset fields intraday', type: 'affected', description: '' }],
-      outputs: [{ name: 'giữ lại snapshot map', type: 'preserve', description: '' }],
+      inputs: [{ name: 'reset intraday fields', type: 'affected', description: '' }],
+      outputs: [{ name: 'keeps the snapshot map', type: 'preserve', description: '' }],
       details:
-        'Là object ĐẶC BIỆT — KHÔNG bị xoá map hoàn toàn. Chỉ reset:\n' +
+        'A SPECIAL object — the map is NOT entirely deleted. Only resets:\n' +
         '  • sequence, bidAskSequence\n' +
         '  • matchingVolume, matchedBy\n' +
         '  • bidOfferList (top book)\n\n' +
-        'Giữ lại: code, name, type, referencePrice, ceiling, floor, listedQty, foreigner baseline... (không cần load lại từ REST mỗi ngày).',
+        'Preserves: code, name, type, referencePrice, ceiling, floor, listedQty, foreigner baseline... (no need to reload from REST every day).',
     },
     {
       id: 'obj-daily',
       kind: 'logic',
       layer: 'Object',
       title: 'SymbolDaily',
-      subtitle: 'Cleared 22:50 (cron riêng)',
+      subtitle: 'Cleared 22:50 (dedicated cron)',
       position: { x: COL * 2, y: ROW * 3.2 },
-      inputs: [{ name: 'cleared bởi clearOldSymbolDaily', type: 'affected', description: '' }],
+      inputs: [{ name: 'cleared by clearOldSymbolDaily', type: 'affected', description: '' }],
       outputs: [{ name: 'realtime_mapSymbolDaily', type: 'Redis', description: '' }],
       details:
-        'Clear 22:50 vì Daily được persist cả ngày, đến tối không cần giữ Redis. Mongo c_symbol_daily có đầy đủ.',
+        'Cleared at 22:50 because Daily has been persisted throughout the day and there is no need to keep it in Redis by the evening. Mongo c_symbol_daily has the full record.',
     },
     {
       id: 'obj-persist',
@@ -3165,12 +3165,12 @@ const lifecycleResetPersist = {
       title: 'Persistable objects',
       subtitle: 'Snapshot 6×/day',
       position: { x: COL * 2, y: ROW * 3.9 },
-      inputs: [{ name: 'snapshot bởi saveRedisToDatabase', type: 'affected', description: '' }],
+      inputs: [{ name: 'snapshot by saveRedisToDatabase', type: 'affected', description: '' }],
       outputs: [
         { name: 'SymbolInfo · SymbolInfoOddLot · SymbolDaily · ForeignerDaily · MarketStatus · DealNotice · Advertised · SymbolPrevious', type: 'Mongo', description: '' },
       ],
       details:
-        '8 object được snapshot định kỳ sang Mongo để có đủ lịch sử truy vấn. Không có quote tick / minute bar / bidOffer history do runtime flags OFF.',
+        '8 objects periodically snapshotted to Mongo to provide full query history. No quote ticks / minute bars / bidOffer history are persisted because of the OFF runtime flags.',
     },
   ],
   edges: [

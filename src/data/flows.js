@@ -1,30 +1,30 @@
 // ============================================================================
 // TradeX Market Data — Flow Definitions (rebuilt from context/06)
 // ============================================================================
-// Mỗi flow gồm:
+// Each flow contains:
 //   - meta: id, title, subtitle, accent
 //   - nodes[]: { id, kind, layer, title, subtitle, inputs[], outputs[],
 //               position: {x,y}, details }
 //   - edges[]: { source, target, label?, animated? }
 //
 // kind controls visual styling:
-//   source   – WS / API nguồn bên ngoài (Lotte)
+//   source   – external WS / API source (Lotte)
 //   service  – Java/Node service (collector, realtime-v2, query-v2, ws-v2)
-//   logic    – Bước xử lý / business logic bên trong 1 service
+//   logic    – processing step / business logic inside a service
 //   kafka    – Kafka topic
 //   redis    – Redis hot state key
 //   mongo    – MongoDB collection
 //   api      – REST / RPC endpoint
 //   ws       – Gateway / SocketCluster channel
-//   client   – Mobile / Web client
-//   schedule – Cron job trigger
-//   config   – Feature flag / runtime config
+//   client   – mobile / web client
+//   schedule – cron job trigger
+//   config   – feature flag / runtime config
 // ============================================================================
 
-// Node width = 320px, height ≈ 140-170px tùy nội dung
-// Để có gap thoáng giữa các node:
-//   - COL = 480 → gap ngang ≈ 160px
-//   - ROW = 280 → gap dọc ≈ 110-140px (kể cả với multiplier 0.7 fanout dọc)
+// Node width = 320px, height ≈ 140-170px depending on content
+// To keep generous gaps between nodes:
+//   - COL = 480 → horizontal gap ≈ 160px
+//   - ROW = 280 → vertical gap ≈ 110-140px (even with 0.7 vertical fanout multiplier)
 const COL = 480;
 const ROW = 280;
 
@@ -33,32 +33,32 @@ const ROW = 280;
 // ─────────────────────────────────────────────────────────────────────────
 const overview = {
   id: 'overview',
-  title: 'OVERVIEW — Toàn cảnh runtime Market Data',
+  title: 'OVERVIEW — Market Data runtime at a glance',
   subtitle:
-    'Init từ REST · Ingest realtime từ WebSocket · Hợp nhất state ở Redis · Snapshot chọn lọc sang Mongo · Query Redis-first · Broadcast realtime qua ws-v2',
+    'Init from REST · Ingest realtime from WebSocket · Merge state in Redis · Selective snapshot to Mongo · Redis-first query · Realtime broadcast via ws-v2',
   accent: '#60a5fa',
   nodes: [
     {
       id: 'lotte-rest',
       kind: 'source',
-      layer: 'Nguồn dữ liệu',
+      layer: 'Data source',
       title: 'Lotte REST API',
       subtitle: 'tsol/apikey/tuxsvc/market/*',
       position: { x: 0, y: 0 },
       inputs: [{ name: 'HTTP GET', type: 'REST', description: 'Init job + recover' }],
       outputs: [
-        { name: 'securities-name / securities-price', type: 'JSON paged', description: 'Danh sách & giá' },
-        { name: 'best-bid-offer', type: 'JSON', description: 'Snapshot order book đầu ngày' },
+        { name: 'securities-name / securities-price', type: 'JSON paged', description: 'Symbol list & prices' },
+        { name: 'best-bid-offer', type: 'JSON', description: 'Start-of-day order book snapshot' },
         { name: 'indexs-list / index-daily / DR APIs', type: 'JSON', description: 'Index + futures metadata' },
       ],
       details:
-        'Là nguồn cho INIT JOB chạy đầu ngày (downloadSymbol) để dựng baseline market state. ' +
-        'Page qua nextKey, batch ≤20 mã/request cho securities-price, 1 mã/request cho best-bid-offer.',
+        'Source for the INIT JOB that runs at start of day (downloadSymbol) to build the baseline market state. ' +
+        'Paginated via nextKey, batch ≤20 symbols/request for securities-price, 1 symbol/request for best-bid-offer.',
     },
     {
       id: 'lotte-ws',
       kind: 'source',
-      layer: 'Nguồn dữ liệu',
+      layer: 'Data source',
       title: 'Lotte WebSocket',
       subtitle: 'ws://[lotte]:9900',
       position: { x: 0, y: ROW * 2 },
@@ -70,8 +70,8 @@ const overview = {
         { name: 'auto.tickerNews.*', type: 'pipe-delimited', description: 'Session/market status events' },
       ],
       details:
-        'Active ingest path runtime hiện tại (deploy scripts để accounts:[], chỉ websocketConnections). ' +
-        'Một số node UAT còn có dr.qt và dr.bo cho futures.',
+        'Active runtime ingest path (deploy scripts set accounts:[], websocketConnections only). ' +
+        'Some UAT nodes also carry dr.qt and dr.bo for futures.',
     },
     {
       id: 'collector',
@@ -81,16 +81,16 @@ const overview = {
       subtitle: 'Java / Spring Boot',
       position: { x: COL, y: ROW },
       inputs: [
-        { name: 'WsConnection.handleMessage()', type: 'raw text', description: 'parts[] từ Lotte WS' },
-        { name: 'LotteApiSymbolInfoService', type: 'REST', description: 'Init/recover qua REST' },
+        { name: 'WsConnection.handleMessage()', type: 'raw text', description: 'parts[] from Lotte WS' },
+        { name: 'LotteApiSymbolInfoService', type: 'REST', description: 'Init/recover via REST' },
       ],
       outputs: [
-        { name: 'quoteUpdate', type: 'Kafka', description: 'Equity / Index / CW / ETF quote (cơ sở)' },
-        { name: 'quoteUpdateDR', type: 'Kafka', description: 'DR / Futures quote (phái sinh)' },
-        { name: 'quoteOddLotUpdate', type: 'Kafka', description: 'Lô lẻ (topic riêng)' },
+        { name: 'quoteUpdate', type: 'Kafka', description: 'Equity / Index / CW / ETF quote (underlying)' },
+        { name: 'quoteUpdateDR', type: 'Kafka', description: 'DR / Futures quote (derivatives)' },
+        { name: 'quoteOddLotUpdate', type: 'Kafka', description: 'Odd lot (separate topic)' },
         { name: 'bidOfferUpdate', type: 'Kafka', description: 'Order book Equity / CW / ETF' },
         { name: 'bidOfferUpdateDR', type: 'Kafka', description: 'Order book DR / Futures' },
-        { name: 'bidOfferOddLotUpdate', type: 'Kafka', description: 'Lô lẻ (topic riêng)' },
+        { name: 'bidOfferOddLotUpdate', type: 'Kafka', description: 'Odd lot (separate topic)' },
         { name: 'extraUpdate / calExtraUpdate', type: 'Kafka', description: 'Basis / breakEven / pt' },
         { name: 'marketStatus', type: 'Kafka', description: 'ATO/LO/INTERMISSION/ATC/PLO/CLOSED' },
         { name: 'dealNoticeUpdate / advertisedUpdate', type: 'Kafka', description: 'Put-through' },
@@ -99,7 +99,7 @@ const overview = {
       ],
       details:
         'StartupService.run() → RealTimeService.run() → start() → forEach websocketConnections → WsConnection.start(). ' +
-        'Convert raw text thành QuoteUpdate / BidOfferUpdate / MarketStatusData rồi RequestSender.sendMessageSafe → Kafka.',
+        'Convert raw text into QuoteUpdate / BidOfferUpdate / MarketStatusData then RequestSender.sendMessageSafe → Kafka.',
     },
     {
       id: 'kafka',
@@ -110,18 +110,18 @@ const overview = {
       position: { x: COL * 2, y: ROW },
       inputs: [
         { name: 'producer: collector', type: 'Kafka', description: 'quote/bidoffer/status/symbolInfo' },
-        { name: 'producer: realtime-v2', type: 'Kafka', description: 'calExtraUpdate khi high/low year đổi' },
+        { name: 'producer: realtime-v2', type: 'Kafka', description: 'calExtraUpdate when high/low year changes' },
       ],
       outputs: [
         { name: 'realtime-v2 consumers', type: 'Kafka', description: 'QuoteUpdate / BidOffer / Extra / MarketStatus / SymbolInfoUpdate' },
-        { name: 'ws-v2 consumers', type: 'Kafka', description: 'Direct fan-out cho client' },
+        { name: 'ws-v2 consumers', type: 'Kafka', description: 'Direct fan-out to clients' },
       ],
       details:
         'Topics: quoteUpdate, quoteUpdateDR, quoteOddLotUpdate, ' +
         'bidOfferUpdate, bidOfferUpdateDR, bidOfferOddLotUpdate, ' +
         'extraUpdate, calExtraUpdate, marketStatus, symbolInfoUpdate, ' +
         'dealNoticeUpdate, advertisedUpdate, statisticUpdate.\n\n' +
-        'Odd-lot stream luôn đi topic riêng — KHÔNG trộn với main session.',
+        'Odd-lot stream always goes through its own topic — NEVER mixed with the main session.',
     },
     {
       id: 'realtime',
@@ -130,15 +130,15 @@ const overview = {
       title: 'realtime-v2',
       subtitle: 'Java / Spring Boot',
       position: { x: COL * 3, y: 0 },
-      inputs: [{ name: 'Kafka market topics', type: 'Kafka', description: 'Tất cả market events' }],
+      inputs: [{ name: 'Kafka market topics', type: 'Kafka', description: 'All market events' }],
       outputs: [
         { name: 'Redis hot state', type: 'Redis HSET/RPUSH', description: 'mapSymbolInfo / Daily / Quote / Statistic' },
-        { name: 'Mongo snapshot', type: 'MongoDB bulk', description: 'saveRedisToDatabase 6 lần/ngày' },
-        { name: 'calExtraUpdate', type: 'Kafka', description: 'Khi high/low year đổi' },
+        { name: 'Mongo snapshot', type: 'MongoDB bulk', description: 'saveRedisToDatabase 6 times/day' },
+        { name: 'calExtraUpdate', type: 'Kafka', description: 'When high/low year changes' },
       ],
       details:
-        'Hợp nhất state realtime, tạo minute bar, statistic, market status. ' +
-        'Runtime flags hiện tại: enableSaveQuote=false, enableSaveQuoteMinute=false, enableSaveBidAsk=false → không persist tick/minute/bid-offer theo event.',
+        'Merges realtime state, builds minute bars, statistics, market status. ' +
+        'Current runtime flags: enableSaveQuote=false, enableSaveQuoteMinute=false, enableSaveBidAsk=false → no per-event persistence of tick/minute/bid-offer.',
     },
     {
       id: 'redis',
@@ -154,14 +154,14 @@ const overview = {
         { name: 'listQuote_{code} / listQuoteMinute_{code} / listQuoteMeta_{code}', type: 'List', description: 'Tick + minute + partition meta' },
         { name: 'listBidOfferOddLot_{code}', type: 'List', description: 'Odd-lot history (runtime ON)' },
         { name: 'mapSymbolStatistic / mapMarketStatus', type: 'Hash', description: 'Statistic + session status' },
-        { name: 'listDealNotice_{market} / listAdvertised_{market}', type: 'List', description: 'Put-through history theo sàn' },
-        { name: 'symbolInfoExtend', type: 'Hash', description: 'Metadata phụ (right info, etc.)' },
-        { name: 'market_rise_false_stock_ranking_{market}_{ranking}_{period}', type: 'String', description: 'Snapshot ranking đã tính' },
-        { name: 'market_right_info_{code}', type: 'String', description: 'Quyền phát hành / cổ tức' },
-        { name: 'notice_{type}', type: 'Hash', description: 'Notification theo loại' },
+        { name: 'listDealNotice_{market} / listAdvertised_{market}', type: 'List', description: 'Put-through history per exchange' },
+        { name: 'symbolInfoExtend', type: 'Hash', description: 'Auxiliary metadata (right info, etc.)' },
+        { name: 'market_rise_false_stock_ranking_{market}_{ranking}_{period}', type: 'String', description: 'Pre-computed ranking snapshot' },
+        { name: 'market_right_info_{code}', type: 'String', description: 'Issue rights / dividends' },
+        { name: 'notice_{type}', type: 'Hash', description: 'Notification by type' },
       ],
       details:
-        'Là PRIMARY store cho intraday. Reset bởi cron removeAutoData (00:55), refreshSymbolInfo (01:35), clearOldSymbolDaily (22:50).\n\n' +
+        'PRIMARY store for intraday. Reset by crons removeAutoData (00:55), refreshSymbolInfo (01:35), clearOldSymbolDaily (22:50).\n\n' +
         'REDIS_KEY constants (file market-query-v2/src/services/RedisService.ts):\n' +
         '  SYMBOL_INFO, SYMBOL_INFO_ODD_LOT, SYMBOL_DAILY, FOREIGNER_DAILY,\n' +
         '  SYMBOL_QUOTE, SYMBOL_QUOTE_META, SYMBOL_STATISTICS, SYMBOL_BID_OFFER,\n' +
@@ -176,10 +176,10 @@ const overview = {
       subtitle: 'Snapshot / day-level only',
       position: { x: COL * 4, y: ROW * 2 },
       inputs: [{ name: 'saveRedisToDatabase()', type: 'bulk write', description: 'Cron 0 15,29 10,11,14 MON-FRI' }],
-      outputs: [{ name: 'Fallback cho query-v2', type: 'find()', description: 'Khi Redis miss (rất hiếm)' }],
+      outputs: [{ name: 'Fallback for query-v2', type: 'find()', description: 'When Redis misses (very rare)' }],
       details:
         'Active collections: c_symbol_info, c_symbol_daily, c_foreigner_daily, c_market_session_status, c_deal_notice, c_advertise, c_symbol_previous. ' +
-        'KHÔNG ghi: c_symbol_quote, c_symbol_quote_minute, c_bid_offer (flags tắt).',
+        'NOT written: c_symbol_quote, c_symbol_quote_minute, c_bid_offer (flags off).',
     },
     {
       id: 'query',
@@ -191,11 +191,11 @@ const overview = {
       inputs: [
         { name: 'REST request', type: 'HTTP', description: 'Mobile/Web' },
         { name: 'Redis primary', type: 'HGET/LRANGE', description: 'Intraday' },
-        { name: 'Mongo fallback', type: 'find()', description: 'Historical hoặc khi Redis thiếu' },
+        { name: 'Mongo fallback', type: 'find()', description: 'Historical or when Redis lacks data' },
       ],
       outputs: [{ name: 'JSON response', type: 'HTTP 200', description: 'Board, tick, minute, statistic, session' }],
       details:
-        'Redis-first cho intraday. Endpoints: querySymbolLatest, priceBoard, querySymbolQuote, querySymbolQuoteTick, querySymbolQuoteMinutes, queryMinuteChartBySymbol, querySymbolStatistics, MarketSessionStatusService.',
+        'Redis-first for intraday. Endpoints: querySymbolLatest, priceBoard, querySymbolQuote, querySymbolQuoteTick, querySymbolQuoteMinutes, queryMinuteChartBySymbol, querySymbolStatistics, MarketSessionStatusService.',
     },
     {
       id: 'wsv2',
@@ -204,11 +204,11 @@ const overview = {
       title: 'ws-v2 (SocketCluster)',
       subtitle: 'Node.js gateway',
       position: { x: COL * 5, y: ROW * 3 },
-      inputs: [{ name: 'Kafka market topics', type: 'consume', description: 'Direct, không qua Mongo' }],
+      inputs: [{ name: 'Kafka market topics', type: 'consume', description: 'Direct, bypassing Mongo' }],
       outputs: [{ name: 'SocketCluster publish', type: 'channel', description: 'market.quote.{code}, market.bidoffer.{code}, market.status, ...' }],
       details:
         'market.js processDataPublishV2() → mapTopicToPublishV2 → parser.js compact payload → cache → publish. ' +
-        'Snapshot on subscribe nếu req.data.returnSnapShot=true.',
+        'Snapshot on subscribe when req.data.returnSnapShot=true.',
     },
     {
       id: 'client',
@@ -218,11 +218,11 @@ const overview = {
       subtitle: 'TradeX clients',
       position: { x: COL * 6, y: ROW * 2 },
       inputs: [
-        { name: 'REST từ query-v2', type: 'HTTPS', description: 'Page load + lazy fetch' },
-        { name: 'WS từ ws-v2', type: 'SocketCluster', description: 'Realtime channels + snapshot' },
+        { name: 'REST from query-v2', type: 'HTTPS', description: 'Page load + lazy fetch' },
+        { name: 'WS from ws-v2', type: 'SocketCluster', description: 'Realtime channels + snapshot' },
       ],
       outputs: [{ name: 'Render board / chart / order book', type: 'UI', description: '' }],
-      details: 'Page load: query-v2 cho snapshot ban đầu. Subscribe ws-v2 cho realtime stream + optional snapshot.',
+      details: 'Page load: query-v2 for initial snapshot. Subscribe ws-v2 for realtime stream + optional snapshot.',
     },
     {
       id: 'cron-jobs',
@@ -236,10 +236,10 @@ const overview = {
         { name: 'removeAutoData', type: '0 55 0 * * MON-FRI', description: 'Reset tick/minute/bid-offer' },
         { name: 'refreshSymbolInfo', type: '0 35 1 * * MON-FRI', description: 'Reset sequence + bidOfferList' },
         { name: 'clearOldSymbolDaily', type: '0 50 22 * * MON-FRI', description: 'Clear daily map' },
-        { name: 'saveRedisToDatabase', type: '0 15,29 10,11,14 * * MON-FRI', description: 'Snapshot Mongo 6 lần/ngày' },
+        { name: 'saveRedisToDatabase', type: '0 15,29 10,11,14 * * MON-FRI', description: 'Snapshot Mongo 6 times/day' },
       ],
       details:
-        'Lifecycle realtime-v2: 00:55 reset hot state → 01:35 refresh symbol info → ban ngày 6 lần snapshot → 22:50 dọn daily.',
+        'realtime-v2 lifecycle: 00:55 reset hot state → 01:35 refresh symbol info → 6 snapshots during the day → 22:50 clean daily.',
     },
   ],
   edges: [
@@ -260,13 +260,13 @@ const overview = {
 };
 
 // ─────────────────────────────────────────────────────────────────────────
-// 1. INIT JOB — downloadSymbol baseline đầu ngày
+// 1. INIT JOB — downloadSymbol start-of-day baseline
 // ─────────────────────────────────────────────────────────────────────────
 const initJobFlow = {
   id: 'init-job',
-  title: 'INIT JOB — downloadSymbol baseline đầu ngày',
+  title: 'INIT JOB — downloadSymbol start-of-day baseline',
   subtitle:
-    'Cron / startup → LotteApiSymbolInfoService → REST APIs → merge → 2 mode init (direct hoặc qua Kafka symbolInfoUpdate)',
+    'Cron / startup → LotteApiSymbolInfoService → REST APIs → merge → 2 init modes (direct or via Kafka symbolInfoUpdate)',
   accent: '#f59e0b',
   nodes: [
     {
@@ -277,11 +277,11 @@ const initJobFlow = {
       subtitle: 'cron + startup',
       position: { x: 0, y: ROW },
       inputs: [
-        { name: 'Spring cron', type: 'cron', description: 'Trigger đầu ngày' },
+        { name: 'Spring cron', type: 'cron', description: 'Start-of-day trigger' },
         { name: 'StartupService.run()', type: 'JVM boot', description: 'RealTimeService → downloadResource()' },
       ],
       outputs: [{ name: 'symbolInfoService.downloadSymbol("JobScheduler")', type: 'call', description: 'Kick off init' }],
-      details: 'File: services/market-collector-lotte/.../job/JobService.java và .../services/StartupService.java.',
+      details: 'File: services/market-collector-lotte/.../job/JobService.java and .../services/StartupService.java.',
     },
     {
       id: 'orch',
@@ -290,12 +290,12 @@ const initJobFlow = {
       title: 'LotteApiSymbolInfoService.downloadSymbol(id)',
       subtitle: 'Build full market universe',
       position: { x: COL, y: ROW * 2.5 },
-      inputs: [{ name: 'logical init request', type: 'string id', description: 'Source: cron hoặc startup' }],
-      outputs: [{ name: 'orchestration', type: 'gọi 5 step download', description: 'list → idx → info → idxInfo → DR' }],
-      details: 'Orchestrate 5 download step rồi merge thành SymbolInfo hoàn chỉnh, cuối cùng quyết định init mode theo enableInitMarket.',
+      inputs: [{ name: 'logical init request', type: 'string id', description: 'Source: cron or startup' }],
+      outputs: [{ name: 'orchestration', type: 'calls 5 download steps', description: 'list → idx → info → idxInfo → DR' }],
+      details: 'Orchestrates 5 download steps then merges into a complete SymbolInfo, finally picks the init mode based on enableInitMarket.',
     },
 
-    // ─── 5 steps ở COL*2 (stack dọc) ───────────────────────────────
+    // ─── 5 steps at COL*2 (vertical stack) ─────────────────────────
     {
       id: 'step-list',
       kind: 'logic',
@@ -303,9 +303,9 @@ const initJobFlow = {
       title: 'downloadSymbolList()',
       subtitle: 'Stock / CW / ETF / bond',
       position: { x: COL * 2, y: 0 },
-      inputs: [{ name: 'GET /securities-name', type: 'paginated', description: 'Loop tới hasNext=false' }],
-      outputs: [{ name: 'Map<String, SymbolNameResponse.Item>', type: 'in-memory', description: 'Tổng hợp toàn bộ symbol name/type/exchange' }],
-      details: 'Cộng dồn toàn bộ page vào Map trước khi sang bước query giá và bid/ask.',
+      inputs: [{ name: 'GET /securities-name', type: 'paginated', description: 'Loop until hasNext=false' }],
+      outputs: [{ name: 'Map<String, SymbolNameResponse.Item>', type: 'in-memory', description: 'Aggregated symbol name/type/exchange across all pages' }],
+      details: 'Accumulate every page into the Map before moving on to price and bid/ask queries.',
     },
     {
       id: 'step-idx',
@@ -314,9 +314,9 @@ const initJobFlow = {
       title: 'downloadIndexList()',
       subtitle: 'Index list',
       position: { x: COL * 2, y: ROW },
-      inputs: [{ name: 'GET /indexs-list', type: 'paginated REST', description: 'Tải danh sách mã index từ Lotte' }],
-      outputs: [{ name: 'index code map', type: 'in-memory', description: 'Cho downloadIndexInfo() và mapping 09401→VNSI runtime' }],
-      details: 'Bước này chuẩn bị input cho downloadIndexInfo() và cho handleIndexQuote() ở runtime WebSocket.',
+      inputs: [{ name: 'GET /indexs-list', type: 'paginated REST', description: 'Load index codes from Lotte' }],
+      outputs: [{ name: 'index code map', type: 'in-memory', description: 'For downloadIndexInfo() and runtime 09401→VNSI mapping' }],
+      details: 'This step prepares input for downloadIndexInfo() and for handleIndexQuote() at WebSocket runtime.',
     },
     {
       id: 'step-info',
@@ -327,10 +327,10 @@ const initJobFlow = {
       position: { x: COL * 2, y: ROW * 2.5 },
       inputs: [
         { name: 'best-bid-offer per code', type: 'REST', description: 'Order book baseline' },
-        { name: 'securities-price batch', type: 'REST', description: 'Giá baseline' },
+        { name: 'securities-price batch', type: 'REST', description: 'Price baseline' },
       ],
-      outputs: [{ name: 'Map<String, SymbolInfo>', type: 'in-memory', description: 'SymbolInfo cho stock/CW/ETF/bond' }],
-      details: 'Query batch giá + per-code bid/offer rồi merge vào SymbolInfo.',
+      outputs: [{ name: 'Map<String, SymbolInfo>', type: 'in-memory', description: 'SymbolInfo for stock/CW/ETF/bond' }],
+      details: 'Query batch prices + per-code bid/offer then merge into SymbolInfo.',
     },
     {
       id: 'step-idx-info',
@@ -339,9 +339,9 @@ const initJobFlow = {
       title: 'downloadIndexInfo()',
       subtitle: 'Index info',
       position: { x: COL * 2, y: ROW * 4 },
-      inputs: [{ name: 'index APIs', type: 'REST', description: 'Per index code (chưa có raw sample log)' }],
-      outputs: [{ name: 'SymbolInfo(type=INDEX)', type: 'in-memory', description: 'Index info cho merge' }],
-      details: 'Dùng index code map từ step-idx để query info chi tiết từng index.',
+      inputs: [{ name: 'index APIs', type: 'REST', description: 'Per index code (no raw sample log yet)' }],
+      outputs: [{ name: 'SymbolInfo(type=INDEX)', type: 'in-memory', description: 'Index info for merge' }],
+      details: 'Uses the index code map from step-idx to fetch detailed info per index.',
     },
     {
       id: 'step-dr',
@@ -350,24 +350,24 @@ const initJobFlow = {
       title: 'downloadDerivatives()',
       subtitle: 'Futures',
       position: { x: COL * 2, y: ROW * 5 },
-      inputs: [{ name: 'DR APIs', type: 'REST', description: 'Derivatives endpoints (chưa có raw sample log)' }],
-      outputs: [{ name: 'SymbolInfo(type=FUTURES)', type: 'in-memory', description: 'Futures info cho merge' }],
-      details: 'Tải futures metadata; với VN30F* sẽ có thêm refCode mapping ở runtime.',
+      inputs: [{ name: 'DR APIs', type: 'REST', description: 'Derivatives endpoints (no raw sample log yet)' }],
+      outputs: [{ name: 'SymbolInfo(type=FUTURES)', type: 'in-memory', description: 'Futures info for merge' }],
+      details: 'Fetch futures metadata; VN30F* codes also get a refCode mapping at runtime.',
     },
 
-    // ─── APIs ở COL*3 cặp đôi với từng step ────────────────────────
+    // ─── APIs at COL*3 paired with each step ───────────────────────
     {
       id: 'api-name',
       kind: 'api',
       layer: 'Lotte REST API',
       title: 'GET /securities-name',
-      subtitle: 'Page qua nextKey',
+      subtitle: 'Paginated via nextKey',
       position: { x: COL * 3, y: 0 },
       inputs: [{ name: 'paginated request', type: 'REST', description: 'nextKey, hasNext' }],
       outputs: [{ name: 'list[]', type: 'JSON', description: 'symbol, code, exchange, type, names' }],
       details:
-        'Sample log 2026-04-20: trang nextKey=1200 chứa stock SBV/SC5/SHB/SSB; trang nextKey=1900 chứa coveredwarrant CMSN2606/CMWG2601/CSHB2505/CSTB2601. ' +
-        'Mỗi page có thể trộn nhiều type (stock + coveredwarrant).',
+        'Sample log 2026-04-20: page nextKey=1200 contained stock SBV/SC5/SHB/SSB; page nextKey=1900 contained coveredwarrant CMSN2606/CMWG2601/CSHB2505/CSTB2601. ' +
+        'Each page can mix multiple types (stock + coveredwarrant).',
     },
     {
       id: 'api-idx-list',
@@ -376,36 +376,36 @@ const initJobFlow = {
       title: 'GET /indexs-list',
       subtitle: 'Index codes',
       position: { x: COL * 3, y: ROW },
-      inputs: [{ name: 'paginated request', type: 'REST', description: 'Trả paginated giống securities-name' }],
-      outputs: [{ name: 'list[] index', type: 'JSON', description: 'idxCode → name (ví dụ 09401 → VN Sustainability Index → VNSI)' }],
-      details: 'Dùng cho mapping 09401 → VNSI ở handleIndexQuote runtime. Chưa có raw sample log trong bundle hiện tại.',
+      inputs: [{ name: 'paginated request', type: 'REST', description: 'Paginated like securities-name' }],
+      outputs: [{ name: 'list[] index', type: 'JSON', description: 'idxCode → name (e.g. 09401 → VN Sustainability Index → VNSI)' }],
+      details: 'Used for the 09401 → VNSI mapping in handleIndexQuote at runtime. No raw sample log in the current bundle.',
     },
     {
       id: 'api-bbo',
       kind: 'api',
       layer: 'Lotte REST API',
       title: 'GET /best-bid-offer',
-      subtitle: '1 mã / request',
+      subtitle: '1 symbol / request',
       position: { x: COL * 3, y: ROW * 2.1 },
       inputs: [{ name: '{stk_cd: code, bo_cnt: "10"}', type: 'REST', description: 'Per code' }],
       outputs: [
-        { name: 'ceiling/floor/refPrice/last', type: 'JSON', description: 'Baseline biên độ' },
-        { name: 'bidOfferList[10]', type: 'JSON', description: 'Order book; đầu ngày thường toàn 0' },
+        { name: 'ceiling/floor/refPrice/last', type: 'JSON', description: 'Price band baseline' },
+        { name: 'bidOfferList[10]', type: 'JSON', description: 'Order book; typically all zeros at start of day' },
       ],
       details:
-        'Sample log SHB: ceiling=16500, floor=14400, refPrice=18100, last=18100, matchedVol=0, bidOfferList toàn {bid:0, bidSize:0, offer:0, offerSize:0}. ' +
-        'Sample CW CSHB2505 tương tự. Các dòng bid/offer toàn 0 sẽ bị filter bỏ khi merge → SymbolInfo.bidOfferList có thể rỗng.',
+        'Sample log SHB: ceiling=16500, floor=14400, refPrice=18100, last=18100, matchedVol=0, bidOfferList all {bid:0, bidSize:0, offer:0, offerSize:0}. ' +
+        'Sample CW CSHB2505 is similar. Rows with all-zero bid/offer are filtered out during merge → SymbolInfo.bidOfferList can be empty.',
     },
     {
       id: 'api-price',
       kind: 'api',
       layer: 'Lotte REST API',
       title: 'GET /securities-price',
-      subtitle: 'Batch ≤20 mã',
+      subtitle: 'Batch ≤20 symbols',
       position: { x: COL * 3, y: ROW * 2.9 },
-      inputs: [{ name: 'list code (batch ≤20)', type: 'REST', description: 'Sau khi có symbol list' }],
-      outputs: [{ name: 'SymbolPriceResponse', type: 'JSON batch', description: 'Giá + foreigner + listedQty + ...' }],
-      details: 'Chưa có raw sample log trong bundle hiện tại, nhưng code path đã xác nhận.',
+      inputs: [{ name: 'list code (batch ≤20)', type: 'REST', description: 'After symbol list is available' }],
+      outputs: [{ name: 'SymbolPriceResponse', type: 'JSON batch', description: 'Price + foreigner + listedQty + ...' }],
+      details: 'No raw sample log in the current bundle yet, but the code path is confirmed.',
     },
 
     // ─── Merge + branch ────────────────────────────────────────────
@@ -418,12 +418,12 @@ const initJobFlow = {
       position: { x: COL * 4, y: ROW * 2.5 },
       inputs: [
         { name: 'symbolName item', type: 'object', description: 'metadata' },
-        { name: 'symbolPrice', type: 'object', description: 'OHLC + foreigner + biên' },
+        { name: 'symbolPrice', type: 'object', description: 'OHLC + foreigner + price band' },
         { name: 'bidAskResponse', type: 'object', description: 'Order book' },
       ],
-      outputs: [{ name: 'SymbolInfo hoàn chỉnh', type: 'object', description: 'allSymbols list' }],
+      outputs: [{ name: 'Complete SymbolInfo', type: 'object', description: 'allSymbols list' }],
       details:
-        'Map các nhóm: giá (open/high/low/last/change/rate/tradingVolume/Value), thời gian (time/highTime/lowTime), biên (ceiling/floor/refPrice), ' +
+        'Map each group: price (open/high/low/last/change/rate/tradingVolume/Value), time (time/highTime/lowTime), band (ceiling/floor/refPrice), ' +
         'intraday (averagePrice/turnoverRate/matchingVolume/bidOfferList/totalBid+OfferVolume/expectedPrice), ' +
         'foreigner (buy/sell/totalRoom/currentRoom), metadata (code/name/type/exchange/marketType/listedQuantity/controlCode/underlyingSymbol/highLowYearData).',
     },
@@ -432,14 +432,14 @@ const initJobFlow = {
       kind: 'config',
       layer: 'Feature flag',
       title: 'enableInitMarket',
-      subtitle: 'Quyết định mode',
+      subtitle: 'Picks the mode',
       position: { x: COL * 5, y: ROW * 2.5 },
       inputs: [{ name: 'application config', type: 'boolean', description: 'true / false' }],
       outputs: [
-        { name: 'true → direct init', type: 'branch', description: 'Ghi thẳng baseline' },
-        { name: 'false → distributed init', type: 'branch', description: 'Qua Kafka cho realtime-v2' },
+        { name: 'true → direct init', type: 'branch', description: 'Write baseline directly' },
+        { name: 'false → distributed init', type: 'branch', description: 'Via Kafka to realtime-v2' },
       ],
-      details: 'Switch giữa direct init (ghi luôn) hoặc distributed init (qua Kafka cho realtime-v2 init).',
+      details: 'Switch between direct init (write right away) or distributed init (via Kafka for realtime-v2 init).',
     },
     {
       id: 'init-direct',
@@ -448,13 +448,13 @@ const initJobFlow = {
       title: 'marketInit.init(allSymbols)',
       subtitle: 'Direct init',
       position: { x: COL * 6, y: ROW * 0.8 },
-      inputs: [{ name: 'List<SymbolInfo>', type: 'object', description: 'Universe đầy đủ' }],
+      inputs: [{ name: 'List<SymbolInfo>', type: 'object', description: 'Full universe' }],
       outputs: [
         { name: 'Redis baseline', type: 'HSET', description: 'realtime_mapSymbolInfo' },
         { name: 'Mongo baseline', type: 'upsert', description: 'c_symbol_info' },
         { name: 'symbol_static_data.json', type: 'file', description: 'uploadMarketDataFile()' },
       ],
-      details: 'Chạy khi enableInitMarket=true. Source MarketInit nằm ngoài workspace nên field-level lib không liệt kê hết được.',
+      details: 'Runs when enableInitMarket=true. The MarketInit source lives outside this workspace so field-level details are not fully enumerated.',
     },
     {
       id: 'kafka-symbol-info',
@@ -464,8 +464,8 @@ const initJobFlow = {
       subtitle: 'Distributed init',
       position: { x: COL * 6, y: ROW * 4.2 },
       inputs: [{ name: 'sendSymbolInfoUpdate(groupId, allSymbols)', type: 'producer', description: 'Split / group messages' }],
-      outputs: [{ name: 'realtime-v2 InitService consume', type: 'Kafka', description: 'Buffer theo groupId' }],
-      details: 'Chạy khi enableInitMarket=false. Group messages theo groupId để realtime-v2 batch init.',
+      outputs: [{ name: 'realtime-v2 InitService consume', type: 'Kafka', description: 'Buffer per groupId' }],
+      details: 'Runs when enableInitMarket=false. Messages are grouped by groupId so realtime-v2 can batch init.',
     },
     {
       id: 'init-service',
@@ -474,27 +474,27 @@ const initJobFlow = {
       title: 'realtime-v2 InitService',
       subtitle: 'Buffer + apply',
       position: { x: COL * 7, y: ROW * 4.2 },
-      inputs: [{ name: 'SymbolInfoUpdate messages', type: 'Kafka', description: 'Group theo groupId' }],
+      inputs: [{ name: 'SymbolInfoUpdate messages', type: 'Kafka', description: 'Grouped by groupId' }],
       outputs: [
         { name: 'monitorService.pauseAll()', type: 'control', description: 'Pause consumer threads' },
-        { name: 'cacheService clean', type: 'control', description: 'Clean cache theo command' },
+        { name: 'cacheService clean', type: 'control', description: 'Clean cache per command' },
         { name: 'symbolInfoService.updateBySymbolInfoUpdate()', type: 'apply', description: 'Apply batch update' },
-        { name: 'marketInit.init(cache.values())', type: 'apply', description: 'Re-init từ cache' },
+        { name: 'marketInit.init(cache.values())', type: 'apply', description: 'Re-init from cache' },
         { name: 'cacheService.reset() + resume', type: 'control', description: 'Resume threads' },
       ],
       details:
-        'Lifecycle: 1) nhận đủ messages hoặc timeout 60s · 2) pauseAll · 3) clean cache · 4) updateBySymbolInfoUpdate · 5) marketInit.init · 6) cacheService.reset() · 7) resume threads.',
+        'Lifecycle: 1) receive all messages or time out after 60s · 2) pauseAll · 3) clean cache · 4) updateBySymbolInfoUpdate · 5) marketInit.init · 6) cacheService.reset() · 7) resume threads.',
     },
     {
       id: 'redis-baseline',
       kind: 'redis',
       layer: 'Output',
       title: 'realtime_mapSymbolInfo',
-      subtitle: 'Baseline đầu ngày',
+      subtitle: 'Start-of-day baseline',
       position: { x: COL * 8, y: ROW * 1.5 },
-      inputs: [{ name: 'marketInit.init', type: 'HSET', description: 'Direct hoặc qua InitService' }],
-      outputs: [{ name: 'Sẵn sàng cho QuoteService.updateQuote()', type: 'Hash', description: 'Tick chỉ accept khi đã có baseline' }],
-      details: 'Baseline phải có trước khi tick đầu tiên về, vì reCalculate() validate có SymbolInfo mới chấp nhận quote.',
+      inputs: [{ name: 'marketInit.init', type: 'HSET', description: 'Direct or via InitService' }],
+      outputs: [{ name: 'Ready for QuoteService.updateQuote()', type: 'Hash', description: 'Ticks are only accepted once the baseline exists' }],
+      details: 'The baseline must be in place before the first tick arrives, because reCalculate() validates that SymbolInfo exists before accepting a quote.',
     },
     {
       id: 'mongo-baseline',
@@ -503,9 +503,9 @@ const initJobFlow = {
       title: 'c_symbol_info baseline',
       subtitle: 'Persisted master',
       position: { x: COL * 8, y: ROW * 3.5 },
-      inputs: [{ name: 'marketInit.init', type: 'upsert', description: 'Bulk upsert từ allSymbols' }],
-      outputs: [{ name: 'Master data ngày', type: 'collection', description: 'Snapshot symbol info ngày' }],
-      details: 'Đảm bảo có snapshot symbol info ngày sau init xong, độc lập với cron saveRedisToDatabase.',
+      inputs: [{ name: 'marketInit.init', type: 'upsert', description: 'Bulk upsert from allSymbols' }],
+      outputs: [{ name: 'Daily master data', type: 'collection', description: 'Daily symbol info snapshot' }],
+      details: 'Guarantees a symbol info snapshot exists once init completes, independent of the saveRedisToDatabase cron.',
     },
   ],
   edges: [
@@ -516,7 +516,7 @@ const initJobFlow = {
     { source: 'orch', target: 'step-idx-info', label: 'step 4' },
     { source: 'orch', target: 'step-dr', label: 'step 5' },
 
-    // step ↔ API: 2 chiều (call + response) cho tất cả các cặp
+    // step ↔ API: bidirectional (call + response) for every pair
     { source: 'step-list', target: 'api-name', label: 'GET', animated: true },
     { source: 'api-name', target: 'step-list', label: 'paged JSON' },
     { source: 'step-idx', target: 'api-idx-list', label: 'GET', animated: true },
@@ -571,21 +571,21 @@ const quoteFlow = {
           description: 'auto.qt.BCM|1|93020|BCM|91500|91903|55800.0|2|55800.0|2|55600.0|5|55800.0|2|100.0|...|83|...',
         },
       ],
-      details: 'Time raw 93020 = HH:mm:ss theo local Lotte (VN timezone).',
+      details: 'Raw time 93020 = HH:mm:ss in Lotte local time (VN timezone).',
     },
     {
       id: 'handle-msg',
       kind: 'logic',
       layer: 'WsConnection',
       title: 'handleMessage(payload)',
-      subtitle: 'Dispatch theo prefix',
+      subtitle: 'Dispatch by prefix',
       position: { x: COL, y: ROW * 1.5 },
-      inputs: [{ name: 'raw text', type: 'string', description: 'splitted thành parts[]' }],
+      inputs: [{ name: 'raw text', type: 'string', description: 'split into parts[]' }],
       outputs: [
-        { name: 'handleStockQuote(parts)', type: 'route', description: 'auto.qt.* và auto.idxqt.* sau khi check' },
-        { name: 'handleStockBidAsk(parts)', type: 'route', description: 'auto.bo.* (xem flow BidOffer)' },
+        { name: 'handleStockQuote(parts)', type: 'route', description: 'auto.qt.* and auto.idxqt.* after check' },
+        { name: 'handleStockBidAsk(parts)', type: 'route', description: 'auto.bo.* (see BidOffer flow)' },
       ],
-      details: 'Dispatcher chính của WsConnection.',
+      details: 'Main dispatcher in WsConnection.',
     },
     {
       id: 'handle-quote',
@@ -594,7 +594,7 @@ const quoteFlow = {
       title: 'handleStockQuote(parts)',
       subtitle: 'Build QuoteUpdate',
       position: { x: COL * 2, y: ROW * 1.5 },
-      inputs: [{ name: 'parts[]', type: 'string[]', description: 'split bởi |' }],
+      inputs: [{ name: 'parts[]', type: 'string[]', description: 'split by |' }],
       outputs: [
         {
           name: 'QuoteUpdate',
@@ -604,8 +604,8 @@ const quoteFlow = {
         },
       ],
       details:
-        'Time conversion nuance: time parse theo VN → convert UTC trước format → "023020". highTime/lowTime parse theo VN nhưng KHÔNG convert UTC → ra "091500"/"091903". ' +
-        'Tức log runtime đang dùng 2 cách biểu diễn time khác nhau cho cùng 1 quote object.',
+        'Time-conversion nuance: time is parsed as VN → converted to UTC before being formatted → "023020". highTime/lowTime are parsed as VN but NOT converted to UTC → "091500"/"091903". ' +
+        'So the runtime log mixes two different time representations for the same quote object.',
     },
     {
       id: 'sender',
@@ -619,7 +619,7 @@ const quoteFlow = {
         { name: 'topic quoteUpdate', type: 'Kafka', description: 'Equity / Index / CW / ETF' },
         { name: 'topic quoteUpdateDR', type: 'Kafka', description: 'DR / Futures' },
       ],
-      details: 'WsConnectionThread.run() chọn topic theo type của object.',
+      details: 'WsConnectionThread.run() picks the topic based on the object type.',
     },
     {
       id: 'kafka',
@@ -631,7 +631,7 @@ const quoteFlow = {
       inputs: [{ name: 'producer collector', type: 'Kafka', description: '' }],
       outputs: [
         { name: 'realtime-v2 consumer', type: 'Kafka', description: 'QuoteUpdateHandler' },
-        { name: 'ws-v2 consumer', type: 'Kafka', description: 'Direct broadcast (xem WS flow)' },
+        { name: 'ws-v2 consumer', type: 'Kafka', description: 'Direct broadcast (see WS flow)' },
       ],
       details: '',
     },
@@ -653,9 +653,9 @@ const quoteFlow = {
       title: 'MonitorService',
       subtitle: 'Per-code queue + dispatch',
       position: { x: COL * 5, y: ROW * 1.5 },
-      inputs: [{ name: 'rcv(symbolQuote)', type: 'enqueue', description: 'Queue theo code' }],
+      inputs: [{ name: 'rcv(symbolQuote)', type: 'enqueue', description: 'Queue per code' }],
       outputs: [{ name: 'handler() → updateQuote()', type: 'dispatch', description: 'By type' }],
-      details: 'Đảm bảo per-code thứ tự xử lý, không race giữa các tick cùng mã.',
+      details: 'Ensures per-code ordering so ticks for the same symbol never race each other.',
     },
     {
       id: 'qs-update',
@@ -683,21 +683,21 @@ const quoteFlow = {
         { name: 'date / createdAt / updatedAt / milliseconds / id', type: 'set', description: 'id = code+date+tradingVolume' },
         { name: 'STOCK: foreignerMatchBuy/Sell, holdVolume, buyAbleRatio, holdRatio', type: 'compute', description: '' },
         { name: 'FUTURES: refCode', type: 'set', description: '' },
-        { name: 'Kafka calExtraUpdate', type: 'producer', description: 'khi high/low year đổi' },
+        { name: 'Kafka calExtraUpdate', type: 'producer', description: 'when high/low year changes' },
       ],
       details:
-        'Validate có SymbolInfo trong cache + tradingVolume>=0. Nếu sai thứ tự volume và enableCheckOrderQuote=true → add wrong-order Redis (nếu bật) và return false.',
+        'Validates that SymbolInfo exists in cache + tradingVolume>=0. If volume is out of order and enableCheckOrderQuote=true → add wrong-order Redis entry (if enabled) and return false.',
     },
     {
       id: 'flag-quote',
       kind: 'config',
       layer: 'Feature flag',
       title: 'enableSaveQuote / Minute / BidAsk',
-      subtitle: 'false trên runtime hiện tại',
+      subtitle: 'false in current runtime',
       position: { x: COL * 7, y: ROW * 3 },
       inputs: [{ name: 'application config', type: 'boolean', description: '' }],
-      outputs: [{ name: 'KHÔNG persist tick/minute event vào Mongo', type: 'branch', description: '' }],
-      details: 'Hệ quả: không có path event → c_symbol_quote / c_symbol_quote_minute / c_bid_offer.',
+      outputs: [{ name: 'Tick/minute events NOT persisted to Mongo', type: 'branch', description: '' }],
+      details: 'Consequence: no event path writes to c_symbol_quote / c_symbol_quote_minute / c_bid_offer.',
     },
     {
       id: 'redis-stat',
@@ -706,11 +706,11 @@ const quoteFlow = {
       title: 'realtime_mapSymbolStatistic[code]',
       subtitle: 'Hash',
       position: { x: COL * 8, y: 0 },
-      inputs: [{ name: 'matched buy/sell/unknown', type: 'compute', description: 'theo matchedBy (ASK/BID/UNKNOWN)' }],
-      outputs: [{ name: 'statistic latest', type: 'Hash', description: 'Aggregated theo price level' }],
+      inputs: [{ name: 'matched buy/sell/unknown', type: 'compute', description: 'by matchedBy (ASK/BID/UNKNOWN)' }],
+      outputs: [{ name: 'latest statistic', type: 'Hash', description: 'Aggregated per price level' }],
       details:
-        'Chỉ áp dụng khi type != INDEX.\n\n' +
-        '─── Sample SHB runtime ───\n' +
+        'Only applied when type != INDEX.\n\n' +
+        '─── SHB runtime sample ───\n' +
         '{\n' +
         '  "code":"SHB","type":"STOCK","time":"074500",\n' +
         '  "tradingVolume":47390400,\n' +
@@ -734,11 +734,11 @@ const quoteFlow = {
       title: 'realtime_mapSymbolInfo[code]',
       subtitle: 'Hash',
       position: { x: COL * 8, y: ROW * 0.7 },
-      inputs: [{ name: 'merge quote vào SymbolInfo', type: 'merge', description: 'Merge field từ SymbolQuote vào SymbolInfo hiện có' }],
-      outputs: [{ name: 'latest snapshot', type: 'Hash', description: 'Single source of truth cho priceBoard / querySymbolLatest' }],
+      inputs: [{ name: 'merge quote into SymbolInfo', type: 'merge', description: 'Merge fields from SymbolQuote into the existing SymbolInfo' }],
+      outputs: [{ name: 'latest snapshot', type: 'Hash', description: 'Single source of truth for priceBoard / querySymbolLatest' }],
       details:
-        'Mỗi hash entry là 1 SymbolInfo đầy đủ: metadata + OHLC + biên + bidOfferList + foreigner + session + ...\n\n' +
-        '─── Sample SHB runtime ───\n' +
+        'Each hash entry is a complete SymbolInfo: metadata + OHLC + band + bidOfferList + foreigner + session + ...\n\n' +
+        '─── SHB runtime sample ───\n' +
         '{\n' +
         '  "code":"SHB","time":"074500","date":"20260420","type":"STOCK",\n' +
         '  "open":15200.0,"high":15300.0,"low":15150.0,"last":15300.0,\n' +
@@ -773,10 +773,10 @@ const quoteFlow = {
       title: 'realtime_mapForeignerDaily[code]',
       subtitle: 'Hash',
       position: { x: COL * 8, y: ROW * 1.4 },
-      inputs: [{ name: 'merge foreigner data', type: 'merge', description: 'Từ foreignerBuy/Sell/TotalRoom/CurrentRoom ở quote' }],
-      outputs: [{ name: 'foreigner daily', type: 'Hash', description: 'Room NN + tỷ lệ hold/buyable theo ngày' }],
+      inputs: [{ name: 'merge foreigner data', type: 'merge', description: 'From foreignerBuy/Sell/TotalRoom/CurrentRoom on the quote' }],
+      outputs: [{ name: 'foreigner daily', type: 'Hash', description: 'Foreigner room + hold/buyable ratios per day' }],
       details:
-        '─── Sample SHB runtime ───\n' +
+        '─── SHB runtime sample ───\n' +
         '{\n' +
         '  "code":"SHB","symbolType":"STOCK","date":1720758584000,\n' +
         '  "foreignerBuyAbleRatio":89.54783184403507,\n' +
@@ -789,7 +789,7 @@ const quoteFlow = {
         '  "listedQuantity":3.662908542E9,\n' +
         '  "createdAt":1720749045763,"updatedAt":1720758584866\n' +
         '}\n\n' +
-        'Khi snapshot cron chạy (saveRedisToDatabase), id được set = code + "_" + yyyyMMdd hôm nay trước khi bulk write Mongo c_foreigner_daily.',
+        'When the snapshot cron runs (saveRedisToDatabase), id is set = code + "_" + yyyyMMdd (today) before bulk-writing to Mongo c_foreigner_daily.',
     },
     {
       id: 'redis-daily',
@@ -798,10 +798,10 @@ const quoteFlow = {
       title: 'realtime_mapSymbolDaily[code]',
       subtitle: 'Hash',
       position: { x: COL * 8, y: ROW * 2.1 },
-      inputs: [{ name: 'upsertSymbolDaily(quote, info)', type: 'compute', description: 'Build daily bar từ tick hiện tại' }],
-      outputs: [{ name: 'daily OHLCV', type: 'Hash', description: 'OHLC + volume/value ngày — dùng cho querySymbolDaily' }],
+      inputs: [{ name: 'upsertSymbolDaily(quote, info)', type: 'compute', description: 'Build the daily bar from the current tick' }],
+      outputs: [{ name: 'daily OHLCV', type: 'Hash', description: 'Daily OHLC + volume/value — consumed by querySymbolDaily' }],
       details:
-        '─── Sample SHB runtime ───\n' +
+        '─── SHB runtime sample ───\n' +
         '{\n' +
         '  "id":"SHB_20260420","code":"SHB",\n' +
         '  "date":1776686400000,\n' +
@@ -820,10 +820,10 @@ const quoteFlow = {
       title: 'realtime_listQuoteMinute_{code}',
       subtitle: 'List',
       position: { x: COL * 8, y: ROW * 2.8 },
-      inputs: [{ name: 'minute bar create/update', type: 'compute', description: 'sang phút mới → tạo bar · cùng phút → update' }],
-      outputs: [{ name: 'SymbolQuoteMinute[]', type: 'List', description: 'Mỗi element là 1 minute bar + periodTradingVolume' }],
+      inputs: [{ name: 'minute bar create/update', type: 'compute', description: 'new minute → create bar · same minute → update' }],
+      outputs: [{ name: 'SymbolQuoteMinute[]', type: 'List', description: 'Each element is one minute bar + periodTradingVolume' }],
       details:
-        '─── Sample 1 phần tử trong list của SHB ───\n' +
+        '─── Sample of one element from the SHB list ───\n' +
         '{\n' +
         '  "code":"SHB","time":"074500","milliseconds":27900000,\n' +
         '  "open":15300.0,"high":15300.0,"low":15300.0,"last":15300.0,\n' +
@@ -832,7 +832,7 @@ const quoteFlow = {
         '  "periodTradingVolume":8363800,\n' +
         '  "date":1776671100000\n' +
         '}\n\n' +
-        'periodTradingVolume = volume giao dịch riêng trong minute này (delta so với minute trước).',
+        'periodTradingVolume = trading volume within this minute only (delta vs the previous minute).',
     },
     {
       id: 'redis-tick',
@@ -841,10 +841,10 @@ const quoteFlow = {
       title: 'realtime_listQuote_{code}',
       subtitle: 'List append',
       position: { x: COL * 8, y: ROW * 3.5 },
-      inputs: [{ name: 'append tick', type: 'RPUSH', description: 'Sau reCalculate() thành công' }],
-      outputs: [{ name: 'SymbolQuote[]', type: 'List', description: 'Full tick history — dùng cho querySymbolQuote / Tick' }],
+      inputs: [{ name: 'append tick', type: 'RPUSH', description: 'After reCalculate() succeeds' }],
+      outputs: [{ name: 'SymbolQuote[]', type: 'List', description: 'Full tick history — consumed by querySymbolQuote / Tick' }],
       details:
-        '─── Sample 1 tick của SHB ───\n' +
+        '─── SHB sample tick ───\n' +
         '{\n' +
         '  "code":"SHB","type":"STOCK","time":"074500",\n' +
         '  "open":15200.0,"high":15300.0,"low":15150.0,"last":15300.0,\n' +
@@ -865,7 +865,7 @@ const quoteFlow = {
         '  "createdAt":1776671118783,"updatedAt":1776671118783,\n' +
         '  "activeBuyVolume":15891000,"activeSellVolume":31499400\n' +
         '}\n\n' +
-        'Các field enrich (holdVolume/holdRatio/buyAbleRatio/foreignerMatch*) được QuoteService.reCalculate() compute trước khi append.',
+        'Enriched fields (holdVolume/holdRatio/buyAbleRatio/foreignerMatch*) are computed by QuoteService.reCalculate() before the append.',
     },
     {
       id: 'redis-meta',
@@ -874,7 +874,7 @@ const quoteFlow = {
       title: 'realtime_listQuoteMeta_{code}',
       subtitle: 'String/encoded',
       position: { x: COL * 8, y: ROW * 4.2 },
-      inputs: [{ name: 'partition meta', type: 'encode', description: 'Cập nhật khi append tick' }],
+      inputs: [{ name: 'partition meta', type: 'encode', description: 'Updated when appending a tick' }],
       outputs: [
         {
           name: 'List<QuotePartition>',
@@ -883,12 +883,12 @@ const quoteFlow = {
         },
       ],
       details:
-        'market-query-v2 dùng metadata này để paging tick theo lastTradingVolume hoặc lastIndex.\n\n' +
-        'Format mỗi partition: partition|fromVolume|toVolume|totalItems\n' +
-        'Ví dụ: "-1|0|50000000|8928" — partition default, từ volume 0 → 50M, tổng 8928 tick.',
+        'market-query-v2 uses this metadata to page ticks by lastTradingVolume or lastIndex.\n\n' +
+        'Format of each partition: partition|fromVolume|toVolume|totalItems\n' +
+        'Example: "-1|0|50000000|8928" — default partition, volume range 0 → 50M, total 8928 ticks.',
     },
 
-    // ─── Odd-lot Quote branch (topic RIÊNG quoteOddLotUpdate) ─────────
+    // ─── Odd-lot Quote branch (SEPARATE topic quoteOddLotUpdate) ──────
     {
       id: 'ws-qt-odd',
       kind: 'source',
@@ -896,7 +896,7 @@ const quoteFlow = {
       title: 'auto.qt.oddlot.<code>',
       subtitle: 'Odd-lot quote',
       position: { x: 0, y: ROW * 5.5 },
-      inputs: [{ name: 'channel odd-lot riêng từ Lotte', type: 'WS', description: '' }],
+      inputs: [{ name: 'separate odd-lot channel from Lotte', type: 'WS', description: '' }],
       outputs: [{ name: 'raw odd-lot quote line', type: 'string', description: '' }],
       details: '',
     },
@@ -905,14 +905,14 @@ const quoteFlow = {
       kind: 'logic',
       layer: 'Collector · Parse',
       title: 'SymbolQuoteOddLot.parse(item)',
-      subtitle: 'Nhánh parse riêng',
+      subtitle: 'Dedicated parse branch',
       position: { x: COL * 2, y: ROW * 5.5 },
       inputs: [{ name: 'odd-lot quote item', type: 'object', description: '' }],
       outputs: [
         {
           name: 'SymbolQuoteOddLot',
           type: 'object',
-          description: 'OHLC + tradingVolume/Value + foreigner summary cho lô lẻ',
+          description: 'OHLC + tradingVolume/Value + foreigner summary for odd lots',
         },
       ],
       details: '',
@@ -922,7 +922,7 @@ const quoteFlow = {
       kind: 'kafka',
       layer: 'Kafka',
       title: 'topic quoteOddLotUpdate',
-      subtitle: 'RIÊNG (không phải quoteUpdate)',
+      subtitle: 'SEPARATE (not quoteUpdate)',
       position: { x: COL * 4, y: ROW * 5.5 },
       inputs: [{ name: 'producer collector', type: 'Kafka', description: '' }],
       outputs: [
@@ -936,7 +936,7 @@ const quoteFlow = {
       kind: 'logic',
       layer: 'realtime-v2 · Consumer',
       title: 'QuoteOddLotUpdateHandler.handle()',
-      subtitle: 'Handler RIÊNG',
+      subtitle: 'Dedicated handler',
       position: { x: COL * 5, y: ROW * 5.5 },
       inputs: [{ name: 'Message<SymbolQuoteOddLot>', type: 'Kafka payload', description: '' }],
       outputs: [{ name: 'monitorService.rcv(SymbolQuoteOddLot)', type: 'call', description: '' }],
@@ -946,7 +946,7 @@ const quoteFlow = {
       id: 'qs-update-odd',
       kind: 'logic',
       layer: 'realtime-v2',
-      title: 'QuoteService.updateQuote() — nhánh OddLot',
+      title: 'QuoteService.updateQuote() — OddLot branch',
       subtitle: 'instanceof SymbolQuoteOddLot',
       position: { x: COL * 6, y: ROW * 5.5 },
       inputs: [
@@ -954,23 +954,23 @@ const quoteFlow = {
         { name: 'cacheService.getMapSymbolInfoOddLot()[code]', type: 'SymbolInfo|null', description: '' },
       ],
       outputs: [
-        { name: 'merge vào SymbolInfoOddLot', type: 'merge', description: 'KHÔNG chạm SymbolInfo main' },
+        { name: 'merge into SymbolInfoOddLot', type: 'merge', description: 'Does NOT touch the main SymbolInfo' },
         { name: 'setSymbolInfoOddLot() → HSET realtime_mapSymbolInfoOddLot[code]', type: 'Redis', description: '' },
       ],
       details:
-        'Cùng QuoteService nhưng re-route sang cache odd-lot, KHÔNG ghi tick/minute/stat/daily/foreigner.\n' +
-        'updatedBy = "SymbolQuoteOddLot" trên hash.',
+        'Same QuoteService but re-routed to the odd-lot cache; does NOT write tick/minute/stat/daily/foreigner.\n' +
+        'updatedBy = "SymbolQuoteOddLot" on the hash.',
     },
     {
       id: 'redis-info-odd',
       kind: 'redis',
       layer: 'Redis writes',
       title: 'realtime_mapSymbolInfoOddLot[code]',
-      subtitle: 'Chia sẻ với BidOfferOddLot',
+      subtitle: 'Shared with BidOfferOddLot',
       position: { x: COL * 8, y: ROW * 5.5 },
-      inputs: [{ name: 'QuoteOddLot + BidOfferOddLot merge', type: 'HSET', description: 'updatedBy = "SymbolQuoteOddLot" hoặc "BidOfferOddLot"' }],
+      inputs: [{ name: 'QuoteOddLot + BidOfferOddLot merge', type: 'HSET', description: 'updatedBy = "SymbolQuoteOddLot" or "BidOfferOddLot"' }],
       outputs: [{ name: 'querySymbolLatestOddLot', type: 'Hash', description: '' }],
-      details: 'Cùng hash key dùng chung với nhánh BidOfferOddLot (xem flow BidOffer).',
+      details: 'This hash key is shared with the BidOfferOddLot branch (see BidOffer flow).',
     },
   ],
   edges: [
@@ -996,7 +996,7 @@ const quoteFlow = {
     { source: 'parse-qt-odd', target: 'kafka-qt-odd', label: 'publish "quoteOddLotUpdate"', animated: true },
     { source: 'kafka-qt-odd', target: 'handler-qt-odd', label: 'consume', animated: true },
     { source: 'handler-qt-odd', target: 'monitor', label: 'rcv(SymbolQuoteOddLot)' },
-    { source: 'monitor', target: 'qs-update-odd', label: 'nhánh odd-lot' },
+    { source: 'monitor', target: 'qs-update-odd', label: 'odd-lot branch' },
     { source: 'qs-update-odd', target: 'redis-info-odd', label: 'HSET oddlot' },
   ],
 };
@@ -1008,7 +1008,7 @@ const bidOfferFlow = {
   id: 'bidoffer-flow',
   title: 'BIDOFFER FLOW — stock/futures + odd-lot split',
   subtitle:
-    '3 nhánh: Stock BO (BidOfferData) · Futures BO (FuturesBidOfferData, price=double) · Odd-lot BO (topic riêng). Collector tính expectedChange/Rate trước khi publish.',
+    '3 branches: Stock BO (BidOfferData) · Futures BO (FuturesBidOfferData, price=double) · Odd-lot BO (separate topic). Collector computes expectedChange/Rate before publishing.',
   accent: '#a78bfa',
   nodes: [
     // ─── Row 0: Stock BidOffer ────────────────────────────────────────
@@ -1019,7 +1019,7 @@ const bidOfferFlow = {
       title: 'auto.bo.<code>',
       subtitle: 'Stock BidOffer (int price)',
       position: { x: 0, y: 0 },
-      inputs: [{ name: 'subscribe sub/pro.pub.auto.bo./...', type: 'WS', description: 'Cổ phiếu HOSE/HNX/UPCOM + CW + ETF' }],
+      inputs: [{ name: 'subscribe sub/pro.pub.auto.bo./...', type: 'WS', description: 'Stocks on HOSE/HNX/UPCOM + CW + ETF' }],
       outputs: [
         {
           name: 'raw line',
@@ -1028,7 +1028,7 @@ const bidOfferFlow = {
             'auto.bo.BCM|1|93020|BCM|O|55800.0|2|55700.0|3|2800|55800.0|2|1800|55700.0|3|2800|...|14900|12500|...',
         },
       ],
-      details: 'parts[4]=controlCode, parts[5]=expectedPrice (ATO/ATC), parts[13..]=3 bước giá bid/offer.',
+      details: 'parts[4]=controlCode, parts[5]=expectedPrice (ATO/ATC), parts[13..]=3 price levels of bid/offer.',
     },
     {
       id: 'parse-bo',
@@ -1037,13 +1037,13 @@ const bidOfferFlow = {
       title: 'BidOfferData.parse(item)',
       subtitle: 'handleStockBidAsk(parts)',
       position: { x: COL, y: 0 },
-      inputs: [{ name: 'BidOfferAutoItem', type: 'object', description: 'Raw struct từ Lotte WS' }],
+      inputs: [{ name: 'BidOfferAutoItem', type: 'object', description: 'Raw struct from Lotte WS' }],
       outputs: [
         {
           name: 'BidOfferData',
           type: 'object',
           description:
-            'code, time(HHmmss), bidPrice/offerPrice(int), bidVolume/offerVolume, bidOfferList (3 PriceItem), totalBid/OfferVolume, totalBid/OfferCount, diffBidOffer, expectedPrice (null nếu không phải ATO/ATC), session',
+            'code, time(HHmmss), bidPrice/offerPrice(int), bidVolume/offerVolume, bidOfferList (3 PriceItem), totalBid/OfferVolume, totalBid/OfferCount, diffBidOffer, expectedPrice (null when not ATO/ATC), session',
         },
       ],
       details:
@@ -1052,9 +1052,9 @@ const bidOfferFlow = {
         '⚠ Naming alias across services:\n' +
         '  • Collector / BidOfferData.session = "CONTINUOUS"\n' +
         '  • MarketStatus hash (realtime_mapMarketStatus).status = "LO" (legacy)\n' +
-        '  • Client-facing payload (ws-v2 parser) = giữ nguyên field đầu nguồn\n' +
-        '"CONTINUOUS" ≡ "LO" ≡ giờ giao dịch khớp lệnh liên tục.\n\n' +
-        'expectedPrice = round1Decimal(projectOpen) khi session=ATO/ATC VÀ projectOpen>0, ngược lại null.\n' +
+        '  • Client-facing payload (ws-v2 parser) = keeps the upstream field as-is\n' +
+        '"CONTINUOUS" ≡ "LO" ≡ continuous-matching trading hours.\n\n' +
+        'expectedPrice = round1Decimal(projectOpen) when session=ATO/ATC AND projectOpen>0, otherwise null.\n' +
         'PriceItem: bidPrice, offerPrice, bidVolume, offerVolume, bidVolumeChange, offerVolumeChange.',
     },
     {
@@ -1062,11 +1062,11 @@ const bidOfferFlow = {
       kind: 'logic',
       layer: 'Collector · handleAutoData',
       title: 'handleAutoData(BidOfferData)',
-      subtitle: 'Tính expectedChange / expectedRate',
+      subtitle: 'Compute expectedChange / expectedRate',
       position: { x: COL * 2, y: 0 },
       inputs: [
-        { name: 'BidOfferData', type: 'object', description: 'Có expectedPrice' },
-        { name: 'cacheService.getMapSymbolInfo()[code].referencePrice', type: 'Double', description: 'Giá tham chiếu từ cache SymbolInfo' },
+        { name: 'BidOfferData', type: 'object', description: 'Has expectedPrice' },
+        { name: 'cacheService.getMapSymbolInfo()[code].referencePrice', type: 'Double', description: 'Reference price from the SymbolInfo cache' },
       ],
       outputs: [
         {
@@ -1077,8 +1077,8 @@ const bidOfferFlow = {
         },
       ],
       details:
-        'Chỉ tính khi expectedPrice != null (đang ATO/ATC) và referencePrice > 0.\n' +
-        'Sau khi enrich → kafkaPublishRealtime("bidOfferUpdate", bidOfferData).',
+        'Computed only when expectedPrice != null (during ATO/ATC) and referencePrice > 0.\n' +
+        'After enrichment → kafkaPublishRealtime("bidOfferUpdate", bidOfferData).',
     },
 
     // ─── Row 1: Futures BidOffer ──────────────────────────────────────
@@ -1094,7 +1094,7 @@ const bidOfferFlow = {
         {
           name: 'raw line',
           type: 'string',
-          description: 'Cùng format như stock nhưng giá là decimal (VD: 1285.70).',
+          description: 'Same format as stock but prices are decimal (e.g. 1285.70).',
         },
       ],
       details: '',
@@ -1112,28 +1112,28 @@ const bidOfferFlow = {
           name: 'FuturesBidOfferData',
           type: 'object',
           description:
-            'Cùng shape như BidOfferData nhưng bidPrice/offerPrice = double (round2DecimalFloatToDouble). PriceItem cũng dùng double.',
+            'Same shape as BidOfferData but bidPrice/offerPrice = double (round2DecimalFloatToDouble). PriceItem also uses double.',
         },
       ],
       details:
-        'Dùng chung sessionControlMap. Cùng logic expectedPrice nhưng áp dụng round 2 decimal.\n' +
-        'Một khác biệt quan trọng so với stock: mọi field giá đều double.',
+        'Shares sessionControlMap. Same expectedPrice logic but rounded to 2 decimals.\n' +
+        'One key difference from stock: every price field is double.',
     },
     {
       id: 'handle-auto-bo-dr',
       kind: 'logic',
       layer: 'Collector · handleAutoData',
       title: 'handleAutoData(FuturesBidOfferData)',
-      subtitle: 'Logic tương tự stock',
+      subtitle: 'Same logic as stock',
       position: { x: COL * 2, y: ROW },
       inputs: [
         { name: 'FuturesBidOfferData', type: 'object', description: '' },
-        { name: 'referencePrice futures', type: 'double', description: 'Từ cache SymbolInfo (futures)' },
+        { name: 'futures referencePrice', type: 'double', description: 'From SymbolInfo cache (futures)' },
       ],
       outputs: [
-        { name: 'FuturesBidOfferData enriched', type: 'object', description: 'expectedChange/Rate đã round2' },
+        { name: 'FuturesBidOfferData enriched', type: 'object', description: 'expectedChange/Rate rounded to 2 decimals' },
       ],
-      details: 'Cùng topic publish: kafkaPublishRealtime("bidOfferUpdate", data) — không có topic riêng cho futures.',
+      details: 'Publishes to the same topic: kafkaPublishRealtime("bidOfferUpdate", data) — there is no dedicated topic for futures.',
     },
 
     // ─── Row 2: Odd-lot BidOffer ──────────────────────────────────────
@@ -1144,16 +1144,16 @@ const bidOfferFlow = {
       title: 'auto.bo.oddlot.<code>',
       subtitle: 'Odd-lot BidOffer',
       position: { x: 0, y: ROW * 2.3 },
-      inputs: [{ name: 'channel odd-lot riêng từ Lotte', type: 'WS', description: '' }],
+      inputs: [{ name: 'separate odd-lot channel from Lotte', type: 'WS', description: '' }],
       outputs: [{ name: 'raw odd-lot line', type: 'string', description: '' }],
-      details: 'Runtime hiện tại odd-lot luôn enable (khác main session có thể tắt history).',
+      details: 'In the current runtime odd-lot is always enabled (unlike the main session, where history can be turned off).',
     },
     {
       id: 'parse-bo-odd',
       kind: 'logic',
       layer: 'Collector · Parse',
       title: 'BidOfferOddLotData.parse(item)',
-      subtitle: 'TransformData branch riêng',
+      subtitle: 'Dedicated TransformData branch',
       position: { x: COL, y: ROW * 2.3 },
       inputs: [{ name: 'odd-lot item', type: 'object', description: '' }],
       outputs: [
@@ -1170,7 +1170,7 @@ const bidOfferFlow = {
       kind: 'logic',
       layer: 'Collector · Producer',
       title: 'kafkaPublishRealtime("bidOfferOddLotUpdate", data)',
-      subtitle: 'Topic RIÊNG (không phải bidOfferUpdate)',
+      subtitle: 'SEPARATE topic (not bidOfferUpdate)',
       position: { x: COL * 2, y: ROW * 2.3 },
       inputs: [{ name: 'BidOfferOddLot', type: 'object', description: '' }],
       outputs: [{ name: 'Kafka record', type: 'Kafka', description: '' }],
@@ -1183,7 +1183,7 @@ const bidOfferFlow = {
       kind: 'kafka',
       layer: 'Kafka',
       title: 'topic bidOfferUpdate',
-      subtitle: 'Stock + Futures cùng topic',
+      subtitle: 'Stock + Futures share this topic',
       position: { x: COL * 3, y: ROW * 0.5 },
       inputs: [{ name: 'producer collector', type: 'Kafka', description: 'BidOfferData + FuturesBidOfferData' }],
       outputs: [
@@ -1197,7 +1197,7 @@ const bidOfferFlow = {
       kind: 'kafka',
       layer: 'Kafka',
       title: 'topic bidOfferOddLotUpdate',
-      subtitle: 'Odd-lot RIÊNG',
+      subtitle: 'SEPARATE odd-lot topic',
       position: { x: COL * 3, y: ROW * 2.3 },
       inputs: [{ name: 'producer collector', type: 'Kafka', description: '' }],
       outputs: [
@@ -1224,28 +1224,28 @@ const bidOfferFlow = {
       kind: 'logic',
       layer: 'realtime-v2 · Consumer',
       title: 'BidOfferOddLotUpdateHandler.handle()',
-      subtitle: 'Handler RIÊNG cho odd-lot',
+      subtitle: 'Dedicated odd-lot handler',
       position: { x: COL * 4, y: ROW * 2.3 },
       inputs: [{ name: 'Message<BidOfferOddLot>', type: 'Kafka payload', description: '' }],
       outputs: [{ name: 'monitorService.rcv(bidOfferOddLot)', type: 'call', description: '' }],
-      details: 'Không share handler với main bidOfferUpdate.',
+      details: 'Does not share the handler with the main bidOfferUpdate.',
     },
     {
       id: 'monitor',
       kind: 'logic',
       layer: 'realtime-v2',
       title: 'MonitorService.handler()',
-      subtitle: 'Dispatch theo instanceof',
+      subtitle: 'Dispatch by instanceof',
       position: { x: COL * 5, y: ROW * 1.4 },
       inputs: [
-        { name: 'BidOffer', type: 'object', description: 'từ handler-bo' },
-        { name: 'BidOfferOddLot', type: 'object', description: 'từ handler-bo-odd' },
+        { name: 'BidOffer', type: 'object', description: 'from handler-bo' },
+        { name: 'BidOfferOddLot', type: 'object', description: 'from handler-bo-odd' },
       ],
       outputs: [
-        { name: 'BidOfferService.updateBidOffer(bidOffer)', type: 'call', description: 'nhánh main' },
-        { name: 'BidOfferService.updateBidOfferOddLot(bidOfferOddLot)', type: 'call', description: 'nhánh odd-lot' },
+        { name: 'BidOfferService.updateBidOffer(bidOffer)', type: 'call', description: 'main branch' },
+        { name: 'BidOfferService.updateBidOfferOddLot(bidOfferOddLot)', type: 'call', description: 'odd-lot branch' },
       ],
-      details: 'Cùng MonitorService nhưng 2 nhánh method riêng → không chia sẻ state.',
+      details: 'Same MonitorService but two separate methods → state is not shared.',
     },
     {
       id: 'bs-update',
@@ -1262,33 +1262,33 @@ const bidOfferFlow = {
         { name: 'set createdAt / updatedAt', type: 'set', description: '' },
         { name: 'ConvertUtils.updateByBidOffer(symbolInfo, bidOffer)', type: 'merge', description: 'bidPrice/offerPrice/volume + expectedPrice/Change/Rate + session + totalBid/Offer' },
         { name: 'HSET realtime_mapSymbolInfo[code]', type: 'Redis', description: '' },
-        { name: 'bidAskSequence++ trên SymbolInfo', type: 'counter', description: '' },
+        { name: 'bidAskSequence++ on SymbolInfo', type: 'counter', description: '' },
         { name: 'id = code + "_" + datetime + "_" + sequence', type: 'string', description: '' },
       ],
       details:
-        'Chỉ chạy nhánh merge khi enableAutoData=true.\n' +
-        'Nếu enableSaveBidOffer=true → marketRedisDao.addBidOffer() (RUNTIME=false → skip).\n' +
-        'Mongo c_bid_offer luôn off (enableSaveBidAsk=false).',
+        'The merge branch only runs when enableAutoData=true.\n' +
+        'When enableSaveBidOffer=true → marketRedisDao.addBidOffer() (RUNTIME=false → skip).\n' +
+        'Mongo c_bid_offer is always off (enableSaveBidAsk=false).',
     },
     {
       id: 'bs-update-odd',
       kind: 'logic',
       layer: 'realtime-v2 · BidOfferService',
       title: 'updateBidOfferOddLot()',
-      subtitle: 'Method RIÊNG — luôn ghi cả 2 key',
+      subtitle: 'Dedicated method — always writes both keys',
       position: { x: COL * 6, y: ROW * 2.3 },
       inputs: [
         { name: 'BidOfferOddLot', type: 'object', description: '' },
-        { name: 'cacheService.getMapSymbolInfoOddLot()[code]', type: 'SymbolInfo|null', description: 'Tự tạo mới nếu null (sequence=1)' },
+        { name: 'cacheService.getMapSymbolInfoOddLot()[code]', type: 'SymbolInfo|null', description: 'Creates a new one if null (sequence=1)' },
       ],
       outputs: [
         { name: 'ConvertUtils.updateByBidOfferOddLot(symbolInfo, bidOfferOddLot)', type: 'merge', description: '' },
         { name: 'setSymbolInfoOddLot() → HSET realtime_mapSymbolInfoOddLot[code]', type: 'Redis', description: '' },
         { name: 'sequence = symbolInfo.bidAskSequence + 1', type: 'counter', description: '' },
         { name: 'id = code + "_" + datetime + "_" + sequence', type: 'string', description: '' },
-        { name: 'addBidOfferOddLot() → RPUSH realtime_listBidOfferOddLot_{code}', type: 'Redis', description: 'Không phụ thuộc flag save' },
+        { name: 'addBidOfferOddLot() → RPUSH realtime_listBidOfferOddLot_{code}', type: 'Redis', description: 'Independent of save flags' },
       ],
-      details: 'Không check enableSaveBidOffer — odd-lot history luôn được giữ ở Redis.',
+      details: 'Does not check enableSaveBidOffer — odd-lot history is always kept in Redis.',
     },
 
     // ─── Column 7: Redis output ───────────────────────────────────────
@@ -1297,35 +1297,35 @@ const bidOfferFlow = {
       kind: 'config',
       layer: 'Feature flag',
       title: 'enableSaveBidOffer / enableSaveBidAsk',
-      subtitle: 'false runtime',
+      subtitle: 'false at runtime',
       position: { x: COL * 6, y: ROW * 3.6 },
       inputs: [{ name: 'application config', type: 'boolean', description: '' }],
       outputs: [
         { name: 'Skip realtime_listBidOffer_{code}', type: 'branch', description: '' },
         { name: 'Skip Mongo c_bid_offer', type: 'branch', description: '' },
       ],
-      details: 'CHỈ áp dụng cho main session. Odd-lot không bị ảnh hưởng.',
+      details: 'Applies ONLY to the main session. Odd-lot is unaffected.',
     },
     {
       id: 'redis-info',
       kind: 'redis',
       layer: 'Redis output',
       title: 'realtime_mapSymbolInfo[code]',
-      subtitle: 'Top book main',
+      subtitle: 'Main top book',
       position: { x: COL * 7, y: 0 },
       inputs: [{ name: 'BidOfferService merge', type: 'HSET', description: '' }],
-      outputs: [{ name: 'query-v2 đọc latest book qua HGET', type: 'Hash', description: 'Fields: bidPrice/offerPrice/volume/session/expectedPrice+Change+Rate/totalBid+Offer' }],
-      details: 'CHỖ DUY NHẤT runtime hiện tại giữ bid/offer main session (không có history list).',
+      outputs: [{ name: 'query-v2 reads latest book via HGET', type: 'Hash', description: 'Fields: bidPrice/offerPrice/volume/session/expectedPrice+Change+Rate/totalBid+Offer' }],
+      details: 'The ONLY place the current runtime keeps main-session bid/offer (no history list).',
     },
     {
       id: 'redis-list-skip',
       kind: 'redis',
       layer: 'Inactive',
       title: 'realtime_listBidOffer_{code}',
-      subtitle: 'Code path tồn tại, runtime tắt',
+      subtitle: 'Code path exists, disabled at runtime',
       position: { x: COL * 7, y: ROW },
       inputs: [{ name: 'enableSaveBidOffer=false', type: 'flag', description: '' }],
-      outputs: [{ name: 'không ghi', type: 'skip', description: '' }],
+      outputs: [{ name: 'not written', type: 'skip', description: '' }],
       details: '',
     },
     {
@@ -1333,12 +1333,12 @@ const bidOfferFlow = {
       kind: 'redis',
       layer: 'Redis output',
       title: 'realtime_mapSymbolInfoOddLot[code]',
-      subtitle: 'Top book odd-lot',
+      subtitle: 'Odd-lot top book',
       position: { x: COL * 7, y: ROW * 1.9 },
       inputs: [{ name: 'updateBidOfferOddLot merge', type: 'HSET', description: '' }],
       outputs: [{ name: 'query-v2: querySymbolLatestOddLot (HMGET)', type: 'Hash', description: '' }],
       details:
-        '─── Sample SHB ───\n' +
+        '─── SHB sample ───\n' +
         '{\n' +
         '  "id":"SHB","code":"SHB",\n' +
         '  "oddlotBidofferTime":"085900",\n' +
@@ -1361,8 +1361,8 @@ const bidOfferFlow = {
       inputs: [{ name: 'updateBidOfferOddLot → addBidOfferOddLot', type: 'RPUSH', description: '' }],
       outputs: [{ name: 'List<BidOfferOddLot>', type: 'List', description: 'id = <CODE>_<yyyyMMddHHmmss>_<sequence>' }],
       details:
-        'Khác với main session (chỉ giữ top book), odd-lot GIỮ toàn bộ history ở Redis.\n\n' +
-        '─── Sample 1 element DGC ───\n' +
+        'Unlike the main session (which only keeps the top book), odd-lot KEEPS the full history in Redis.\n\n' +
+        '─── DGC sample element ───\n' +
         '{\n' +
         '  "id":"DGC_20240228085900_2","code":"DGC","time":"085900",\n' +
         '  "bidOfferList":[\n' +
@@ -1379,10 +1379,10 @@ const bidOfferFlow = {
       kind: 'mongo',
       layer: 'Inactive',
       title: 'c_bid_offer',
-      subtitle: 'Không persist',
+      subtitle: 'Not persisted',
       position: { x: COL * 7, y: ROW * 3.7 },
       inputs: [{ name: 'enableSaveBidAsk=false', type: 'flag', description: '' }],
-      outputs: [{ name: 'không có Mongo bid/offer history', type: 'skip', description: '' }],
+      outputs: [{ name: 'no Mongo bid/offer history', type: 'skip', description: '' }],
       details: '',
     },
   ],
@@ -1425,7 +1425,7 @@ const indexStatusFlow = {
   id: 'index-status-flow',
   title: 'INDEX + MARKET STATUS — auto.idxqt + auto.tickerNews',
   subtitle:
-    'Index quote (no statistic) + session/market status events propagate sang SymbolInfo cùng market khi ATO/ATC',
+    'Index quote (no statistic) + session/market status events propagated to SymbolInfo of the same market on ATO/ATC',
   accent: '#fbbf24',
   nodes: [
     {
@@ -1458,17 +1458,17 @@ const indexStatusFlow = {
           name: 'QuoteUpdate(type=INDEX)',
           type: 'object',
           description:
-            'code map qua indexList API (09401 → VNSI), thêm ceilingCount, upCount, unchangedCount, downCount, floorCount',
+            'code mapped via the indexList API (09401 → VNSI), plus ceilingCount, upCount, unchangedCount, downCount, floorCount',
         },
       ],
-      details: 'Cần indexList đã được init sẵn (xem flow Init Job) thì mapping mới chính xác.',
+      details: 'Requires that indexList has already been initialized (see Init Job flow); otherwise the mapping is incorrect.',
     },
     {
       id: 'sender-idx',
       kind: 'logic',
       layer: 'Producer',
       title: 'sendMessageSafe("quoteUpdate")',
-      subtitle: 'Cùng topic với equity quote',
+      subtitle: 'Same topic as equity quote',
       position: { x: COL * 2, y: 0 },
       inputs: [{ name: 'QuoteUpdate(type=INDEX)', type: 'object', description: '' }],
       outputs: [{ name: 'topic quoteUpdate', type: 'Kafka', description: '' }],
@@ -1499,7 +1499,7 @@ const indexStatusFlow = {
         { name: 'append realtime_listQuote_indexCode', type: 'Redis', description: '' },
         { name: 'update realtime_listQuoteMinute_indexCode', type: 'Redis', description: '' },
       ],
-      details: 'KHÔNG ghi realtime_mapSymbolStatistic vì type=INDEX.',
+      details: 'Does NOT write realtime_mapSymbolStatistic because type=INDEX.',
     },
     {
       id: 'redis-idx',
@@ -1532,7 +1532,7 @@ const indexStatusFlow = {
       position: { x: COL, y: ROW * 2 },
       inputs: [{ name: 'parts[]', type: 'string[]', description: '' }],
       outputs: [{ name: 'MarketStatusData {time, code, title}', type: 'object', description: '' }],
-      details: 'parseStatus(statusMap) map ra trạng thái phiên nội bộ.',
+      details: 'parseStatus(statusMap) maps to the internal session state.',
     },
     {
       id: 'sender-status',
@@ -1571,11 +1571,11 @@ const indexStatusFlow = {
         { name: 'set id = market + "_" + type + date', type: 'set', description: '' },
         { name: 'HSET realtime_mapMarketStatus', type: 'Redis', description: '' },
         {
-          name: 'Propagate sessions=status sang mọi SymbolInfo cùng market',
+          name: 'Propagate sessions=status to every SymbolInfo in the same market',
           type: 'broadcast',
-          description: 'Chỉ khi status là ATO hoặc ATC',
+          description: 'Only when status is ATO or ATC',
         },
-        { name: 'HSET realtime_mapSymbolInfo[*]', type: 'Redis', description: 'sau propagate' },
+        { name: 'HSET realtime_mapSymbolInfo[*]', type: 'Redis', description: 'after propagation' },
       ],
       details: '',
     },
@@ -1586,21 +1586,21 @@ const indexStatusFlow = {
       title: 'realtime_mapMarketStatus',
       subtitle: 'Hash by market_type (id = <MARKET>_<TYPE>)',
       position: { x: COL * 5, y: ROW * 2 },
-      inputs: [{ name: 'MarketStatusService', type: 'HSET', description: 'Ghi mỗi khi nhận news/session change' }],
+      inputs: [{ name: 'MarketStatusService', type: 'HSET', description: 'Written whenever a news/session change is received' }],
       outputs: [{ name: 'query-v2 + ws-v2', type: 'Hash', description: 'Read by MarketService.getCurrentStatus()' }],
       details:
-        '─── Sample HOSE_EQUITY runtime ───\n' +
+        '─── HOSE_EQUITY runtime sample ───\n' +
         '{\n' +
         '  "id":"HOSE_EQUITY","market":"HOSE","type":"EQUITY",\n' +
         '  "status":"LO",\n' +
         '  "date":1745892901611,"time":"021501",\n' +
         '  "title":"(HOSE) Market Open"\n' +
         '}\n\n' +
-        'status lifecycle điển hình trong 1 phiên HOSE EQUITY:\n' +
-        'PRE_OPEN → ATO → LO (sáng) → INTERMISSION → LO (chiều) → ATC → PLO → CLOSED.\n' +
-        'Mỗi transition sinh 1 news → update hash key tương ứng + publish qua ws-v2.\n\n' +
-        '⚠ Alias: field status="LO" trong hash này TƯƠNG ĐƯƠNG session="CONTINUOUS" trong BidOfferData/SymbolInfo. ' +
-        'Client cần chuẩn hóa khi render priceBoard để hiển thị đồng nhất trạng thái phiên.',
+        'Typical status lifecycle during one HOSE EQUITY session:\n' +
+        'PRE_OPEN → ATO → LO (morning) → INTERMISSION → LO (afternoon) → ATC → PLO → CLOSED.\n' +
+        'Each transition emits a news item → updates the matching hash key + publishes via ws-v2.\n\n' +
+        '⚠ Alias: status="LO" in this hash is EQUIVALENT to session="CONTINUOUS" in BidOfferData/SymbolInfo. ' +
+        'The client must normalize these when rendering the priceBoard so the session state is shown consistently.',
     },
   ],
   edges: [
@@ -1623,12 +1623,12 @@ const indexStatusFlow = {
 // ─────────────────────────────────────────────────────────────────────────
 const extraUpdateFlow = {
   id: 'extra-update-flow',
-  title: 'EXTRA / DEAL / ADVERTISED — 4 trigger sources cho ExtraUpdate',
+  title: 'EXTRA / DEAL / ADVERTISED — 4 trigger sources for ExtraUpdate',
   subtitle:
-    'ExtraUpdate = object trung gian cho basis/breakEven/pt · 4 nguồn phát (VN30 · Futures · CW · DealNotice) + nhánh calExtraUpdate từ realtime-v2 khi high/low year đổi',
+    'ExtraUpdate = intermediate object for basis/breakEven/pt · 4 emitters (VN30 · Futures · CW · DealNotice) + a calExtraUpdate branch from realtime-v2 when high/low year changes',
   accent: '#f472b6',
   nodes: [
-    // ─── 4 sources of ExtraUpdate từ collector ──────────────────────
+    // ─── 4 sources of ExtraUpdate from the collector ────────────────
     {
       id: 'src-vn30',
       kind: 'source',
@@ -1641,10 +1641,10 @@ const extraUpdateFlow = {
         {
           name: 'ExtraUpdate',
           type: 'object',
-          description: 'Với mỗi VN30F*: basis = futuresLast − vn30Last',
+          description: 'For each VN30F*: basis = futuresLast − vn30Last',
         },
       ],
-      details: 'Khi tick VN30 tới, collector iterate các mã futures VN30F* và sinh ExtraUpdate cho từng mã.',
+      details: 'When a VN30 tick arrives, the collector iterates the VN30F* futures symbols and emits an ExtraUpdate for each.',
     },
     {
       id: 'src-futures',
@@ -1655,9 +1655,9 @@ const extraUpdateFlow = {
       position: { x: 0, y: ROW * 0.9 },
       inputs: [{ name: 'FuturesUpdateData', type: 'object', description: 'VN30F1M / VN30F2M / ...' }],
       outputs: [
-        { name: 'ExtraUpdate', type: 'object', description: 'basis = futuresLast − vn30Last (đọc vn30Last từ cache)' },
+        { name: 'ExtraUpdate', type: 'object', description: 'basis = futuresLast − vn30Last (vn30Last read from cache)' },
       ],
-      details: 'Chiều ngược với Source 1 — khi futures tick tới, tính lại basis cho chính mã đó.',
+      details: 'Reverse of Source 1 — when a futures tick arrives, recompute basis for that symbol.',
     },
     {
       id: 'src-cw',
@@ -1674,7 +1674,7 @@ const extraUpdateFlow = {
           description: 'breakEven = last × exerciseRatio + exercisePrice',
         },
       ],
-      details: 'Chỉ áp dụng cho chứng quyền (CW). Công thức từ ConvertUtils/formula layer.',
+      details: 'Applies only to covered warrants (CW). Formula lives in ConvertUtils / formula layer.',
     },
     {
       id: 'src-deal',
@@ -1683,47 +1683,47 @@ const extraUpdateFlow = {
       title: 'DealNoticeData → ExtraUpdate.fromDealNotice()',
       subtitle: 'Trigger: Deal notice (PT)',
       position: { x: 0, y: ROW * 2.7 },
-      inputs: [{ name: 'DealNoticeData', type: 'object', description: 'Mỗi deal PT mới' }],
+      inputs: [{ name: 'DealNoticeData', type: 'object', description: 'Every new PT deal' }],
       outputs: [
         {
           name: 'ExtraUpdate',
           type: 'object',
-          description: 'ptVolume (tích lũy) + ptValue (tích lũy)',
+          description: 'ptVolume (cumulative) + ptValue (cumulative)',
         },
       ],
-      details: 'Cùng lúc deal notice cũng được publish ra topic riêng dealNoticeUpdate (xem nhánh dưới).',
+      details: 'At the same time the deal notice is also published to the dedicated dealNoticeUpdate topic (see branch below).',
     },
     {
       id: 'publish-extra',
       kind: 'logic',
       layer: 'Collector · Producer',
       title: 'kafkaPublishRealtime("extraUpdate", extraUpdate)',
-      subtitle: 'Tập trung 4 source',
+      subtitle: '4 sources converge here',
       position: { x: COL * 1.3, y: ROW * 1.35 },
       inputs: [
         {
           name: 'ExtraUpdate',
           type: 'object',
           description:
-            'Fields: code, basis (Double), ptVolume (long), ptValue (double) — (breakEven merge vào symbolInfo qua field extend).',
+            'Fields: code, basis (Double), ptVolume (long), ptValue (double) — (breakEven is merged into symbolInfo via an extend field).',
         },
       ],
       outputs: [{ name: 'Kafka record topic extraUpdate', type: 'Kafka', description: '' }],
       details: '',
     },
 
-    // ─── Nhánh calExtraUpdate từ realtime-v2 ──────────────────────────
+    // ─── calExtraUpdate branch from realtime-v2 ──────────────────────
     {
       id: 'recalc-source',
       kind: 'logic',
       layer: 'realtime-v2 · Source 5/5',
       title: 'QuoteService.reCalculate()',
-      subtitle: 'Detect high/low year đổi',
+      subtitle: 'Detect high/low year change',
       position: { x: COL * 1.3, y: ROW * 3.6 },
-      inputs: [{ name: 'SymbolQuote', type: 'object', description: 'từ flow Quote' }],
-      outputs: [{ name: 'phát Kafka topic calExtraUpdate', type: 'producer', description: '' }],
+      inputs: [{ name: 'SymbolQuote', type: 'object', description: 'from Quote flow' }],
+      outputs: [{ name: 'emit Kafka topic calExtraUpdate', type: 'producer', description: '' }],
       details:
-        'Nguồn calExtraUpdate ACTIVE trong runtime websocket-only: mỗi khi high/low year thay đổi so với SymbolInfo cache, realtime-v2 tự phát để các service khác rebuild cached aggregates.',
+        'calExtraUpdate is an ACTIVE source in the websocket-only runtime: whenever high/low year changes vs the SymbolInfo cache, realtime-v2 emits this so other services can rebuild cached aggregates.',
     },
 
     // ─── Kafka topics ──────────────────────────────────────────────────
@@ -1732,11 +1732,11 @@ const extraUpdateFlow = {
       kind: 'kafka',
       layer: 'Kafka',
       title: 'topic extraUpdate / calExtraUpdate',
-      subtitle: 'Cùng consumer, khác nguồn',
+      subtitle: 'Same consumer, different sources',
       position: { x: COL * 2.5, y: ROW * 1.8 },
       inputs: [
-        { name: 'producer collector (extraUpdate)', type: 'Kafka', description: '4 sources VN30/Futures/CW/Deal' },
-        { name: 'producer realtime-v2 (calExtraUpdate)', type: 'Kafka', description: 'high/low year đổi' },
+        { name: 'producer collector (extraUpdate)', type: 'Kafka', description: '4 sources: VN30/Futures/CW/Deal' },
+        { name: 'producer realtime-v2 (calExtraUpdate)', type: 'Kafka', description: 'high/low year changed' },
       ],
       outputs: [
         { name: 'realtime-v2 ExtraQuoteUpdateHandler', type: 'Kafka', description: '' },
@@ -1762,11 +1762,11 @@ const extraUpdateFlow = {
       kind: 'logic',
       layer: 'realtime-v2 · ExtraQuoteService',
       title: 'updateExtraQuote(extraQuote)',
-      subtitle: 'Merge 3 target',
+      subtitle: 'Merge into 3 targets',
       position: { x: COL * 4.5, y: ROW * 1.8 },
       inputs: [
         { name: 'ExtraQuote', type: 'object', description: '' },
-        { name: 'enableAutoData flag', type: 'boolean', description: 'false → return ngay' },
+        { name: 'enableAutoData flag', type: 'boolean', description: 'false → return immediately' },
       ],
       outputs: [
         {
@@ -1785,7 +1785,7 @@ const extraUpdateFlow = {
           description: 'upsertSymbolDaily(extraQuote, symbolInfo)',
         },
       ],
-      details: 'Chỉ chạy khi enableAutoData=true. Tất cả 3 target đều HSET lên Redis.',
+      details: 'Only runs when enableAutoData=true. All 3 targets are HSET to Redis.',
     },
 
     // ─── DealNotice branch (separate from ExtraUpdate) ──────────────
@@ -1796,9 +1796,9 @@ const extraUpdateFlow = {
       title: 'topic dealNoticeUpdate',
       subtitle: 'Put-through deals',
       position: { x: COL * 2.5, y: ROW * 4.5 },
-      inputs: [{ name: 'producer collector', type: 'Kafka', description: 'Đồng thời với source 4 ExtraUpdate' }],
+      inputs: [{ name: 'producer collector', type: 'Kafka', description: 'Emitted alongside ExtraUpdate source 4' }],
       outputs: [{ name: 'realtime-v2 + ws-v2', type: 'Kafka', description: '' }],
-      details: 'DealNotice raw đi topic riêng cùng lúc fromDealNotice() sinh ExtraUpdate.',
+      details: 'Raw DealNotice goes through its own topic at the same time fromDealNotice() emits an ExtraUpdate.',
     },
     {
       id: 'deal-svc',
@@ -1809,9 +1809,9 @@ const extraUpdateFlow = {
       position: { x: COL * 4.5, y: ROW * 4.5 },
       inputs: [{ name: 'DealNotice', type: 'object', description: '' }],
       outputs: [
-        { name: 'ensure SymbolInfo tồn tại', type: 'check', description: '' },
-        { name: 'de-dup theo confirmNumber', type: 'compute', description: '' },
-        { name: 'merge PT value/volume vào SymbolInfo', type: 'merge', description: '' },
+        { name: 'ensure SymbolInfo exists', type: 'check', description: '' },
+        { name: 'de-dup by confirmNumber', type: 'compute', description: '' },
+        { name: 'merge PT value/volume into SymbolInfo', type: 'merge', description: '' },
         { name: 'HSET realtime_mapSymbolInfo[code]', type: 'Redis', description: '' },
         { name: 'RPUSH realtime_listDealNotice_{market}', type: 'Redis List', description: '' },
       ],
@@ -1851,11 +1851,11 @@ const extraUpdateFlow = {
       kind: 'redis',
       layer: 'Redis output',
       title: 'mapSymbolInfo + mapSymbolDaily + mapForeignerDaily',
-      subtitle: 'Extra fields merged',
+      subtitle: 'Extra fields merged in',
       position: { x: COL * 6, y: ROW * 1.8 },
       inputs: [{ name: 'ExtraQuoteService → HSET (3 keys)', type: 'HSET', description: '' }],
       outputs: [{ name: 'query-v2 + ws-v2', type: 'Redis', description: '' }],
-      details: 'basis/breakEven/pt value đều nằm trong SymbolInfo nên query-v2 đọc qua SYMBOL_INFO.',
+      details: 'basis/breakEven/pt values live inside SymbolInfo so query-v2 reads them through SYMBOL_INFO.',
     },
     {
       id: 'redis-deal',
@@ -1894,7 +1894,7 @@ const extraUpdateFlow = {
     { source: 'extra-handler', target: 'extra-svc', label: 'rcv()' },
     { source: 'extra-svc', target: 'redis-extra', label: 'HSET (3 keys)' },
 
-    // DealNotice branch (raw topic cùng lúc với source 4)
+    // DealNotice branch (raw topic emitted with source 4)
     { source: 'src-deal', target: 'kafka-deal', label: 'raw dealNotice' },
     { source: 'kafka-deal', target: 'deal-svc', label: 'consume', animated: true },
     { source: 'deal-svc', target: 'redis-deal', label: 'RPUSH' },
@@ -1911,7 +1911,7 @@ const extraUpdateFlow = {
 const resetFlow = {
   id: 'reset-flow',
   title: 'RESET / MAINTENANCE — removeAutoData · refreshSymbolInfo · clearOldSymbolDaily',
-  subtitle: '3 cron jobs lifecycle daily ở realtime-v2 để dọn / reset Redis hot state',
+  subtitle: '3 daily lifecycle cron jobs in realtime-v2 that clean / reset Redis hot state',
   accent: '#fb7185',
   nodes: [
     {
@@ -1923,7 +1923,7 @@ const resetFlow = {
       position: { x: 0, y: 0 },
       inputs: [{ name: '@Scheduled cron', type: 'cron', description: '' }],
       outputs: [{ name: 'JobService.removeAutoData()', type: 'call', description: '' }],
-      details: 'Chạy đầu ngày để dọn tick/minute của ngày hôm trước.',
+      details: 'Runs at start of day to clean the previous day’s tick/minute data.',
     },
     {
       id: 'cron-refresh',
@@ -1934,7 +1934,7 @@ const resetFlow = {
       position: { x: 0, y: ROW * 2 },
       inputs: [{ name: '@Scheduled cron', type: 'cron', description: '' }],
       outputs: [{ name: 'JobService.refreshSymbolInfo()', type: 'call', description: '' }],
-      details: 'Reset 1 số field intraday trên SymbolInfo để chuẩn bị phiên mới.',
+      details: 'Resets a handful of intraday fields on SymbolInfo to prepare for the new session.',
     },
     {
       id: 'cron-clear',
@@ -1945,17 +1945,17 @@ const resetFlow = {
       position: { x: 0, y: ROW * 4 },
       inputs: [{ name: '@Scheduled cron', type: 'cron', description: '' }],
       outputs: [{ name: 'JobService.clearOldSymbolDaily()', type: 'call', description: '' }],
-      details: 'Dọn daily map cuối ngày.',
+      details: 'Cleans the daily map at end of day.',
     },
     {
       id: 'check-holiday',
       kind: 'logic',
       layer: 'Pre-check',
       title: 'check holiday / weekend',
-      subtitle: 'Skip nếu không phải trading day',
+      subtitle: 'Skip when not a trading day',
       position: { x: COL, y: 0 },
       inputs: [{ name: 'JobService.removeAutoData()', type: 'call', description: '' }],
-      outputs: [{ name: 'tiếp tục hoặc skip', type: 'branch', description: '' }],
+      outputs: [{ name: 'continue or skip', type: 'branch', description: '' }],
       details: '',
     },
     {
@@ -1965,7 +1965,7 @@ const resetFlow = {
       title: 'RedisService.removeAutoData()',
       subtitle: 'Bulk clear keys',
       position: { x: COL * 2, y: 0 },
-      inputs: [{ name: 'không có (pure clear)', type: 'call', description: '' }],
+      inputs: [{ name: 'none (pure clear)', type: 'call', description: '' }],
       outputs: [
         { name: 'clearAllQuoteMinute()', type: 'DEL', description: 'realtime_listQuoteMinute_*' },
         { name: 'clearAllSymbolQuote()', type: 'DEL', description: 'realtime_listQuote_*' },
@@ -1983,7 +1983,7 @@ const resetFlow = {
       kind: 'logic',
       layer: 'realtime-v2',
       title: 'RedisService.refreshSymbolInfo()',
-      subtitle: 'Reset field per SymbolInfo',
+      subtitle: 'Reset fields per SymbolInfo',
       position: { x: COL * 2, y: ROW * 2 },
       inputs: [{ name: 'redisDao.getAllSymbolInfo()', type: 'list', description: '' }],
       outputs: [
@@ -1995,7 +1995,7 @@ const resetFlow = {
         { name: 'updatedBy = "Job Realtime refreshSymbolInfo"', type: 'set', description: '' },
         { name: 'setSymbolInfo() per code', type: 'HSET', description: '' },
       ],
-      details: 'KHÔNG xóa SymbolInfo — chỉ reset một số field intraday.',
+      details: 'Does NOT delete SymbolInfo — only resets a handful of intraday fields.',
     },
     {
       id: 'rs-clear',
@@ -2004,7 +2004,7 @@ const resetFlow = {
       title: 'RedisService.clearOldSymbolDaily()',
       subtitle: 'Clear daily',
       position: { x: COL * 2, y: ROW * 4 },
-      inputs: [{ name: 'không có', type: 'call', description: '' }],
+      inputs: [{ name: 'none', type: 'call', description: '' }],
       outputs: [
         { name: 'clear realtime_mapSymbolDaily', type: 'DEL', description: '' },
         { name: 'cacheService.getMapSymbolDaily().clear()', type: 'in-memory clear', description: '' },
@@ -2018,15 +2018,15 @@ const resetFlow = {
       title: 'cacheService.reset()',
       subtitle: 'In-memory cache reset',
       position: { x: COL * 3, y: ROW * 1 },
-      inputs: [{ name: 'sau remove/refresh', type: 'call', description: '' }],
-      outputs: [{ name: 'in-memory cache về 0', type: 'reset', description: '' }],
+      inputs: [{ name: 'after remove/refresh', type: 'call', description: '' }],
+      outputs: [{ name: 'in-memory cache back to 0', type: 'reset', description: '' }],
       details: '',
     },
     {
       id: 'redis-cleared',
       kind: 'redis',
       layer: 'Redis after',
-      title: 'BỊ XÓA',
+      title: 'DELETED',
       subtitle: 'Tick · minute · bid-offer · stats',
       position: { x: COL * 4, y: 0 },
       inputs: [{ name: 'removeAutoData', type: 'DEL', description: '' }],
@@ -2044,12 +2044,12 @@ const resetFlow = {
       id: 'redis-kept',
       kind: 'redis',
       layer: 'Redis after',
-      title: 'GIỮ LẠI',
+      title: 'KEPT',
       subtitle: 'SymbolInfo · ForeignerDaily · MarketStatus',
       position: { x: COL * 4, y: ROW * 2 },
-      inputs: [{ name: 'removeAutoData không động vào', type: 'preserve', description: '' }],
+      inputs: [{ name: 'removeAutoData does not touch these', type: 'preserve', description: '' }],
       outputs: [
-        { name: 'realtime_mapSymbolInfo', type: 'kept', description: '(field intraday được refresh ở 01:35)' },
+        { name: 'realtime_mapSymbolInfo', type: 'kept', description: '(intraday fields refreshed at 01:35)' },
         { name: 'realtime_mapForeignerDaily', type: 'kept', description: '' },
         { name: 'realtime_mapMarketStatus', type: 'kept', description: '' },
       ],
@@ -2060,10 +2060,10 @@ const resetFlow = {
       kind: 'redis',
       layer: 'Redis after',
       title: 'realtime_mapSymbolDaily',
-      subtitle: 'Cleared cuối ngày',
+      subtitle: 'Cleared at end of day',
       position: { x: COL * 4, y: ROW * 4 },
       inputs: [{ name: 'clearOldSymbolDaily', type: 'DEL', description: '' }],
-      outputs: [{ name: 'sạch sàng cho ngày sau', type: 'cleared', description: '' }],
+      outputs: [{ name: 'clean slate for the next day', type: 'cleared', description: '' }],
       details: '',
     },
   ],
@@ -2090,7 +2090,7 @@ const persistFlow = {
   id: 'persist-flow',
   title: 'PERSIST SNAPSHOT — saveRedisToDatabase Redis → MongoDB',
   subtitle:
-    'Cron 6 lần/ngày (10:15, 10:29, 11:15, 11:29, 14:15, 14:29) snapshot day-level state sang Mongo. KHÔNG persist tick/minute/bid-offer (flags tắt).',
+    'Cron 6 times/day (10:15, 10:29, 11:15, 11:29, 14:15, 14:29) snapshots day-level state into Mongo. Tick/minute/bid-offer are NOT persisted (flags off).',
   accent: '#34d399',
   nodes: [
     {
@@ -2100,7 +2100,7 @@ const persistFlow = {
       title: 'JobService.saveRedisToDatabase()',
       subtitle: '0 15,29 10,11,14 * * MON-FRI',
       position: { x: 0, y: ROW * 2 },
-      inputs: [{ name: '@Scheduled cron', type: 'cron', description: '6 lần/ngày' }],
+      inputs: [{ name: '@Scheduled cron', type: 'cron', description: '6 times/day' }],
       outputs: [{ name: 'RedisService.saveRedisToDatabase(flags)', type: 'call', description: '' }],
       details: '10:15 · 10:29 · 11:15 · 11:29 · 14:15 · 14:29.',
     },
@@ -2109,7 +2109,7 @@ const persistFlow = {
       kind: 'logic',
       layer: 'realtime-v2',
       title: 'RedisService.saveRedisToDatabase()',
-      subtitle: 'Orchestrate bulk write',
+      subtitle: 'Orchestrate bulk writes',
       position: { x: COL, y: ROW * 2 },
       inputs: [
         { name: 'enableSaveQuote', type: 'boolean', description: 'runtime = false' },
@@ -2137,10 +2137,10 @@ const persistFlow = {
       title: 'redisDao.getAllSymbolInfoOddLot()',
       subtitle: 'Hash realtime_mapSymbolInfoOddLot',
       position: { x: COL * 2, y: ROW * 0.7 },
-      inputs: [{ name: 'realtime_mapSymbolInfoOddLot', type: 'HGETALL', description: 'Key tách riêng với mapSymbolInfo' }],
-      outputs: [{ name: 'List<SymbolInfoOddLot>', type: 'list', description: 'Chỉ có bidOfferList odd-lot + foreigner summary' }],
+      inputs: [{ name: 'realtime_mapSymbolInfoOddLot', type: 'HGETALL', description: 'Separate key from mapSymbolInfo' }],
+      outputs: [{ name: 'List<SymbolInfoOddLot>', type: 'list', description: 'Only odd-lot bidOfferList + foreigner summary' }],
       details:
-        '─── Sample SHB ───\n' +
+        '─── SHB sample ───\n' +
         '{\n' +
         '  "id":"SHB","code":"SHB",\n' +
         '  "tradingVolume":0,"tradingValue":0.0,\n' +
@@ -2160,8 +2160,8 @@ const persistFlow = {
         '  "isHighlight":1000,\n' +
         '  "updatedBy":"BidOfferOddLot"\n' +
         '}\n\n' +
-        'Lưu ý: key lưu riêng vì odd-lot không khớp sequence với main session. ' +
-        'Đi kèm history list: realtime_listBidOfferOddLot_<code> (xem flow BidOffer).',
+        'Note: the key is kept separate because odd-lot does not share a sequence with the main session. ' +
+        'Comes with the history list realtime_listBidOfferOddLot_<code> (see BidOffer flow).',
     },
     {
       id: 'r-daily',
@@ -2182,7 +2182,7 @@ const persistFlow = {
       subtitle: 'set id=code_yyyyMMdd',
       position: { x: COL * 2, y: ROW * 2.1 },
       inputs: [{ name: 'realtime_mapForeignerDaily', type: 'HGETALL', description: '' }],
-      outputs: [{ name: 'List<ForeignerDaily> (id mapped today)', type: 'list', description: '' }],
+      outputs: [{ name: 'List<ForeignerDaily> (id mapped to today)', type: 'list', description: '' }],
       details: '',
     },
     {
@@ -2225,9 +2225,9 @@ const persistFlow = {
       title: 'MongoBulkUtils.updateInBulk',
       subtitle: 'Per collection',
       position: { x: COL * 3, y: ROW * 2.5 },
-      inputs: [{ name: '7 lists từ Redis', type: 'list', description: '' }],
+      inputs: [{ name: '7 lists from Redis', type: 'list', description: '' }],
       outputs: [{ name: 'BulkWriteResult', type: 'Mongo', description: '' }],
-      details: 'Bulk upsert hiệu suất cao thay vì insert từng cái.',
+      details: 'High-throughput bulk upsert rather than per-row insert.',
     },
     {
       id: 'm-info',
@@ -2313,7 +2313,7 @@ const persistFlow = {
       title: 'updateSymbolPrevious()',
       subtitle: 'Build previous/close',
       position: { x: COL * 3, y: ROW * 4.9 },
-      inputs: [{ name: 'SymbolDaily hôm nay', type: 'list', description: '' }],
+      inputs: [{ name: 'SymbolDaily for today', type: 'list', description: '' }],
       outputs: [{ name: 'previous/close state', type: 'compute', description: '' }],
       details: '',
     },
@@ -2333,15 +2333,15 @@ const persistFlow = {
       kind: 'config',
       layer: 'Inactive (flags off)',
       title: 'enableSaveQuote / Minute / BidAsk = false',
-      subtitle: 'Runtime hiện tại',
+      subtitle: 'Current runtime',
       position: { x: COL * 3, y: 0 },
       inputs: [{ name: 'application config', type: 'boolean', description: '' }],
       outputs: [
-        { name: 'KHÔNG getAllSymbolQuote', type: 'skip', description: '' },
-        { name: 'KHÔNG getAllSymbolQuoteMinute', type: 'skip', description: '' },
-        { name: 'KHÔNG getAllBidOffer', type: 'skip', description: '' },
+        { name: 'NO getAllSymbolQuote', type: 'skip', description: '' },
+        { name: 'NO getAllSymbolQuoteMinute', type: 'skip', description: '' },
+        { name: 'NO getAllBidOffer', type: 'skip', description: '' },
       ],
-      details: 'Hệ quả: c_symbol_quote, c_symbol_quote_minute, c_bid_offer KHÔNG được persist runtime.',
+      details: 'Consequence: c_symbol_quote, c_symbol_quote_minute, c_bid_offer are NOT persisted at runtime.',
     },
   ],
   edges: [
@@ -2373,7 +2373,7 @@ const persistFlow = {
     { source: 'rs-save', target: 'prev', label: 'updateSymbolPrevious()' },
     { source: 'prev', target: 'm-prev', label: 'upsert' },
 
-    { source: 'inactive-quote', target: 'rs-save', label: 'flags=false → skip 3 nhánh' },
+    { source: 'inactive-quote', target: 'rs-save', label: 'flags=false → skip 3 branches' },
   ],
 };
 
@@ -2384,7 +2384,7 @@ const queryApiFlow = {
   id: 'query-api-flow',
   title: 'QUERY API — market-query-v2 catalog (Kafka RPC + Redis-first)',
   subtitle:
-    '35+ endpoints, transport Kafka request/response pattern · RequestHandler.ts route theo message.uri · Redis primary, Mongo fallback, Lotte REST cho một số historical flows',
+    '35+ endpoints, transport is a Kafka request/response pattern · RequestHandler.ts routes by message.uri · Redis primary, Mongo fallback, Lotte REST for some historical flows',
   accent: '#38bdf8',
   nodes: [
     {
@@ -2396,7 +2396,7 @@ const queryApiFlow = {
       position: { x: 0, y: ROW * 5 },
       inputs: [{ name: 'User action', type: 'UI', description: 'Page load / refresh / lazy fetch' }],
       outputs: [{ name: 'Kafka RPC request', type: 'Kafka', description: '' }],
-      details: 'Client gateway (BFF) build message { uri, payload, replyTopic } → publish Kafka.',
+      details: 'Client gateway (BFF) builds a message { uri, payload, replyTopic } → publishes to Kafka.',
     },
     {
       id: 'kafka-req',
@@ -2414,12 +2414,12 @@ const queryApiFlow = {
       kind: 'logic',
       layer: 'market-query-v2',
       title: 'RequestHandler.ts',
-      subtitle: 'Route theo message.uri',
+      subtitle: 'Route by message.uri',
       position: { x: COL * 2, y: ROW * 5 },
       inputs: [{ name: 'Kafka Message<Request>', type: 'object', description: '{ uri, payload, requestId, replyTopic }' }],
       outputs: [{ name: 'dispatch(uri) → 12 service groups', type: 'call', description: '' }],
       details:
-        'File: market-query-v2/src/consumers/RequestHandler.ts — controller tập trung, parse payload → invoke service method tương ứng → build response → publish Kafka reply.',
+        'File: market-query-v2/src/consumers/RequestHandler.ts — central controller, parses the payload → invokes the matching service method → builds the response → publishes the Kafka reply.',
     },
 
     // ─── 12 service groups ────────────────────────────────────────────
@@ -2436,16 +2436,16 @@ const queryApiFlow = {
         { name: 'querySymbolLatestOddLot', type: 'endpoint', description: 'HMGET SYMBOL_INFO_ODD_LOT' },
         { name: 'queryPriceBoard', type: 'endpoint', description: 'Board snapshot' },
         { name: 'querySymbolStaticInfo', type: 'endpoint', description: '' },
-        { name: 'querySymbolQuote / queryQuoteData', type: 'endpoint', description: 'Tick page theo volume/meta' },
-        { name: 'querySymbolQuoteTick', type: 'endpoint', description: 'Tick grouped theo sequence' },
+        { name: 'querySymbolQuote / queryQuoteData', type: 'endpoint', description: 'Tick page by volume/meta' },
+        { name: 'querySymbolQuoteTick', type: 'endpoint', description: 'Ticks grouped by sequence' },
         { name: 'querySymbolQuoteMinutes / queryMinuteChart', type: 'endpoint', description: 'Minute grouped' },
         { name: 'querySymbolStatistics', type: 'endpoint', description: 'HGET SYMBOL_STATISTICS' },
         { name: 'querySymbolTickSizeMatch', type: 'endpoint', description: '' },
         { name: 'queryMarketSessionStatus', type: 'endpoint', description: 'HGET MARKET_STATUS' },
       ],
       details:
-        '§2.1 — realtime symbol data từ Redis hot state.\n' +
-        'querySymbolQuote flow: 1) đọc SYMBOL_QUOTE_META → 2) chọn partition theo lastTradingVolume → 3) LRANGE SYMBOL_QUOTE_{code}[_p] → 4) SymbolQuoteResponse[].',
+        '§2.1 — realtime symbol data from Redis hot state.\n' +
+        'querySymbolQuote flow: 1) read SYMBOL_QUOTE_META → 2) pick partition by lastTradingVolume → 3) LRANGE SYMBOL_QUOTE_{code}[_p] → 4) SymbolQuoteResponse[].',
     },
     {
       id: 'grp-history',
@@ -2456,13 +2456,13 @@ const queryApiFlow = {
       position: { x: COL * 3, y: ROW * 1 },
       inputs: [{ name: 'symbol + period', type: 'payload', description: '' }],
       outputs: [
-        { name: 'querySymbolPeriod', type: 'endpoint', description: 'HGET SYMBOL_DAILY + c_symbol_daily historical' },
+        { name: 'querySymbolPeriod', type: 'endpoint', description: 'HGET SYMBOL_DAILY + historical c_symbol_daily' },
         { name: 'querySymbolForeignerDaily', type: 'endpoint', description: 'HGET FOREIGNER_DAILY' },
         { name: 'querySymbolRight', type: 'endpoint', description: 'GET market_right_info_{code}' },
         { name: 'querySymbolDailyReturns', type: 'endpoint', description: '' },
         { name: 'initSymbolDailyReturns', type: 'endpoint', description: 'Compute + cache returns' },
       ],
-      details: 'Hỗn hợp Redis (intraday) + Mongo (historical).',
+      details: 'Mix of Redis (intraday) + Mongo (historical).',
     },
     {
       id: 'grp-ranking',
@@ -2481,7 +2481,7 @@ const queryApiFlow = {
         { name: 'queryTopForeignerTrading', type: 'endpoint', description: '' },
         { name: 'queryTopAiRating', type: 'endpoint', description: '' },
       ],
-      details: 'Ranking cached dạng String (JSON) trong Redis key STOCK_RANKING_PERIOD.',
+      details: 'Rankings cached as Strings (JSON) under the Redis key STOCK_RANKING_PERIOD.',
     },
     {
       id: 'grp-index',
@@ -2493,12 +2493,12 @@ const queryApiFlow = {
       inputs: [{ name: 'market / index code', type: 'payload', description: '' }],
       outputs: [
         { name: 'queryIndexList', type: 'endpoint', description: '' },
-        { name: 'queryIndexStockList', type: 'endpoint', description: 'Mã trong rổ index' },
+        { name: 'queryIndexStockList', type: 'endpoint', description: 'Symbols in the index basket' },
         { name: 'queryMarketLiquidity', type: 'endpoint', description: '' },
         { name: 'getLastTradingDate', type: 'endpoint', description: '' },
         { name: 'getCurrentDividendList', type: 'endpoint', description: '' },
         { name: 'getDailyAccumulativeVNIndex', type: 'endpoint', description: '' },
-        { name: 'queryForeignerSummary', type: 'endpoint', description: 'Aggregate nước ngoài theo sàn' },
+        { name: 'queryForeignerSummary', type: 'endpoint', description: 'Foreigner aggregate per exchange' },
       ],
       details: '',
     },
@@ -2506,7 +2506,7 @@ const queryApiFlow = {
       id: 'grp-pt',
       kind: 'logic',
       layer: '§2.5 Put-through',
-      title: 'Thỏa thuận',
+      title: 'Put-through',
       subtitle: '3 endpoints',
       position: { x: COL * 3, y: ROW * 4 },
       inputs: [{ name: 'market + time range', type: 'payload', description: '' }],
@@ -2543,7 +2543,7 @@ const queryApiFlow = {
         { name: 'queryConfig', type: 'endpoint', description: '' },
         { name: 'querySymbolInfo', type: 'endpoint', description: '' },
         { name: 'querySymbolSearch', type: 'endpoint', description: '' },
-        { name: 'queryTradingViewHistory', type: 'endpoint', description: 'Bars cho chart' },
+        { name: 'queryTradingViewHistory', type: 'endpoint', description: 'Bars for the chart' },
         { name: 'querySymbolHistoryEvents', type: 'endpoint', description: 'Dividend / split events' },
       ],
       details: '',
@@ -2563,7 +2563,7 @@ const queryApiFlow = {
         { name: 'loadChart', type: 'endpoint', description: '' },
         { name: 'deleteChart', type: 'endpoint', description: '' },
       ],
-      details: 'Thuần Mongo (c_chart).',
+      details: 'Pure Mongo (c_chart).',
     },
     {
       id: 'grp-watchlist',
@@ -2579,7 +2579,7 @@ const queryApiFlow = {
         { name: 'addSymbolToWatchList / removeSymbolFromWatchList', type: 'endpoint', description: '' },
         { name: 'updateOrderSymbolWatchList', type: 'endpoint', description: '' },
       ],
-      details: 'Thuần Mongo (c_watchlist).',
+      details: 'Pure Mongo (c_watchlist).',
     },
     {
       id: 'grp-fix',
@@ -2601,7 +2601,7 @@ const queryApiFlow = {
       position: { x: COL * 3, y: ROW * 10 },
       inputs: [{ name: 'admin token + chart params', type: 'payload', description: '' }],
       outputs: [{ name: 'crawlChartData', type: 'endpoint', description: 'Trigger crawl → Lotte REST + Mongo persist' }],
-      details: 'Endpoint vận hành — gọi REST Lotte để refresh chart data vào Mongo.',
+      details: 'Operations endpoint — calls Lotte REST to refresh chart data into Mongo.',
     },
     {
       id: 'grp-noti',
@@ -2623,7 +2623,7 @@ const queryApiFlow = {
       title: 'Redis (primary)',
       subtitle: 'Intraday hot state + cached aggregates',
       position: { x: COL * 4.5, y: ROW * 3 },
-      inputs: [{ name: 'từ các service group', type: 'HGET/LRANGE/GET', description: '' }],
+      inputs: [{ name: 'from the service groups', type: 'HGET/LRANGE/GET', description: '' }],
       outputs: [{ name: 'hot data', type: 'Redis', description: '' }],
       details:
         'REDIS_KEY coverage (file RedisService.ts):\n' +
@@ -2646,7 +2646,7 @@ const queryApiFlow = {
         '  c_symbol_info, c_symbol_daily, c_foreigner_daily, c_market_session_status,\n' +
         '  c_deal_notice, c_advertise, c_symbol_previous,\n' +
         '  c_chart, c_watchlist, c_notification, ...\n' +
-        'KHÔNG ghi runtime: c_symbol_quote, c_symbol_quote_minute, c_bid_offer (flags off).',
+        'NOT written at runtime: c_symbol_quote, c_symbol_quote_minute, c_bid_offer (flags off).',
     },
     {
       id: 'lotte-rest',
@@ -2668,9 +2668,9 @@ const queryApiFlow = {
       title: 'Build response + Kafka reply',
       subtitle: '',
       position: { x: COL * 6, y: ROW * 5 },
-      inputs: [{ name: 'data từ Redis / Mongo / Lotte', type: 'object', description: '' }],
+      inputs: [{ name: 'data from Redis / Mongo / Lotte', type: 'object', description: '' }],
       outputs: [
-        { name: 'Kafka reply { requestId, data }', type: 'Kafka', description: 'Gửi về replyTopic từ request' },
+        { name: 'Kafka reply { requestId, data }', type: 'Kafka', description: 'Sent back on the replyTopic from the request' },
       ],
       details: '',
     },
@@ -2679,7 +2679,7 @@ const queryApiFlow = {
       kind: 'kafka',
       layer: 'Kafka RPC',
       title: 'topic <replyTopic>',
-      subtitle: 'Phản hồi bất đồng bộ',
+      subtitle: 'Asynchronous response',
       position: { x: COL * 7, y: ROW * 5 },
       inputs: [{ name: 'producer market-query-v2', type: 'Kafka', description: '' }],
       outputs: [{ name: 'BFF consumer', type: 'Kafka', description: '' }],
@@ -2692,7 +2692,7 @@ const queryApiFlow = {
       title: 'Render UI',
       subtitle: 'Board / chart / order book / watchlist',
       position: { x: COL * 8, y: ROW * 5 },
-      inputs: [{ name: 'JSON response', type: 'REST/WS', description: 'BFF proxy lại client' }],
+      inputs: [{ name: 'JSON response', type: 'REST/WS', description: 'BFF proxies it back to the client' }],
       outputs: [{ name: 'UI', type: 'render', description: '' }],
       details: '',
     },
@@ -2746,7 +2746,7 @@ const wsFlow = {
   id: 'ws-flow',
   title: 'WS-V2 BROADCAST — Kafka direct → SocketCluster channels',
   subtitle:
-    'ws-v2 consume Kafka trực tiếp, KHÔNG chờ Mongo · compact payload qua parser.js · publish + snapshot on subscribe',
+    'ws-v2 consumes Kafka directly and does NOT wait on Mongo · compact payload via parser.js · publish + snapshot on subscribe',
   accent: '#c084fc',
   nodes: [
     {
@@ -2757,7 +2757,7 @@ const wsFlow = {
       subtitle: 'quote / bidoffer / extra / status / dealNotice / advertised / statistic',
       position: { x: 0, y: ROW * 2 },
       inputs: [{ name: 'producer collector + realtime-v2', type: 'Kafka', description: '' }],
-      outputs: [{ name: 'consume bởi market.js', type: 'Kafka', description: '' }],
+      outputs: [{ name: 'consumed by market.js', type: 'Kafka', description: '' }],
       details: '',
     },
     {
@@ -2782,10 +2782,10 @@ const wsFlow = {
       outputs: [
         { name: 'quoteUpdate → market.quote.{code}', type: 'channel', description: '' },
         { name: 'quoteUpdateDR → market.quote.dr.{code}', type: 'channel', description: '' },
-        { name: 'quoteOddLotUpdate → market.quoteOddLot.{code}', type: 'channel', description: 'Nhánh odd-lot riêng' },
+        { name: 'quoteOddLotUpdate → market.quoteOddLot.{code}', type: 'channel', description: 'Separate odd-lot branch' },
         { name: 'bidOfferUpdate → market.bidoffer.{code}', type: 'channel', description: '' },
         { name: 'bidOfferUpdateDR → market.bidoffer.dr.{code}', type: 'channel', description: '' },
-        { name: 'bidOfferOddLotUpdate → market.bidofferOddLot.{code}', type: 'channel', description: 'Nhánh odd-lot riêng' },
+        { name: 'bidOfferOddLotUpdate → market.bidofferOddLot.{code}', type: 'channel', description: 'Separate odd-lot branch' },
         { name: 'extraUpdate / calExtraUpdate → market.extra.{code}', type: 'channel', description: '' },
         { name: 'marketStatus → market.status', type: 'channel', description: '' },
         { name: 'dealNoticeUpdate → market.putthrough.deal.{market}', type: 'channel', description: '' },
@@ -2794,7 +2794,7 @@ const wsFlow = {
       ],
       details:
         'File: ws-v2/market.js → processDataPublishV2().\n' +
-        'Topic odd-lot dùng parser riêng (convertDataPublishV2BidOfferOddLot, convertDataPublishV2QuoteOddLot) nên payload chỉ chứa các field phù hợp cho lô lẻ.',
+        'Odd-lot topics use dedicated parsers (convertDataPublishV2BidOfferOddLot, convertDataPublishV2QuoteOddLot) so the payload only contains the fields relevant to odd lots.',
     },
     {
       id: 'parser',
@@ -2804,7 +2804,7 @@ const wsFlow = {
       subtitle: 'Compact payload',
       position: { x: COL * 3, y: ROW * 2 },
       inputs: [
-        { name: 'full payload từ Kafka', type: 'object', description: 'verbose field names' },
+        { name: 'full payload from Kafka', type: 'object', description: 'verbose field names' },
       ],
       outputs: [
         {
@@ -2821,16 +2821,16 @@ const wsFlow = {
         {
           name: 'BidOffer Odd-lot compact',
           type: 'object',
-          description: 'convertDataPublishV2BidOfferOddLot — giữ oddlotBidOfferList + time, bỏ các field main session',
+          description: 'convertDataPublishV2BidOfferOddLot — keeps oddlotBidOfferList + time, drops main-session fields',
         },
         {
           name: 'Quote Odd-lot compact',
           type: 'object',
-          description: 'convertDataPublishV2QuoteOddLot — giữ OHLC + volume đơn giản cho lô lẻ',
+          description: 'convertDataPublishV2QuoteOddLot — keeps OHLC + simple volume for odd lots',
         },
         { name: 'Extra compact', type: 'object', description: 'convertDataPublishV2Extra' },
       ],
-      details: 'Mục tiêu: giảm bandwidth qua wire bằng key ngắn 1-2 ký tự.',
+      details: 'Goal: reduce wire bandwidth by using short 1-2 character keys.',
     },
     {
       id: 'cache',
@@ -2839,9 +2839,9 @@ const wsFlow = {
       title: 'cacheInfo / cacheOddlot / cacheStatistic / cacheMarketStatus',
       subtitle: 'In-process JS cache',
       position: { x: COL * 4, y: ROW * 1 },
-      inputs: [{ name: 'setToCacheInfo(code, payload)', type: 'set', description: 'Sau parse' }],
-      outputs: [{ name: 'phục vụ snapshot on subscribe', type: 'cache', description: '' }],
-      details: 'Không phải Redis — là in-process memory của ws-v2. Dùng cho returnSnapshot=true.',
+      inputs: [{ name: 'setToCacheInfo(code, payload)', type: 'set', description: 'After parsing' }],
+      outputs: [{ name: 'serves snapshot on subscribe', type: 'cache', description: '' }],
+      details: 'Not Redis — this is the in-process memory of ws-v2. Used for returnSnapshot=true.',
     },
     {
       id: 'sc-publish',
@@ -2851,7 +2851,7 @@ const wsFlow = {
       subtitle: 'Fan-out to subscribers',
       position: { x: COL * 4, y: ROW * 2.5 },
       inputs: [{ name: 'channel + compact payload', type: 'broker call', description: '' }],
-      outputs: [{ name: 'message tới các subscriber', type: 'WS frame', description: '' }],
+      outputs: [{ name: 'message to subscribers', type: 'WS frame', description: '' }],
       details: '',
     },
     {
@@ -2862,13 +2862,13 @@ const wsFlow = {
       subtitle: 'On subscribe',
       position: { x: COL * 5, y: ROW * 0.5 },
       inputs: [
-        { name: 'subscribe(channel, {returnSnapShot})', type: 'WS', description: 'từ client' },
+        { name: 'subscribe(channel, {returnSnapShot})', type: 'WS', description: 'from client' },
       ],
       outputs: [
         { name: 'checkingReturnSnapShotInfo(req)', type: 'call', description: 'Lookup cache' },
-        { name: 'reply snapshot trước khi attach stream', type: 'WS', description: '' },
+        { name: 'reply with snapshot before attaching the stream', type: 'WS', description: '' },
       ],
-      details: 'Nếu req.data.returnSnapShot===true → trả snapshot từ cache ngay lúc subscribe.',
+      details: 'When req.data.returnSnapShot===true → reply with a snapshot from the cache right at subscribe time.',
     },
     {
       id: 'client',
@@ -2902,6 +2902,7 @@ const wsFlow = {
 // Export
 // ─────────────────────────────────────────────────────────────────────────
 import { lifecycles } from './lifecycles.js';
+import { vietstockFlows, vietstockSections } from './vietstockFlows.js';
 
 const businessFlows = [
   overview,
@@ -2916,19 +2917,29 @@ const businessFlows = [
   wsFlow,
 ].map((f) => ({ ...f, category: 'business' }));
 
-export const flows = [...businessFlows, ...lifecycles];
+export const flows = [...businessFlows, ...lifecycles, ...vietstockFlows];
 
 export const flowCategories = [
   {
     id: 'business',
     label: 'Business Flow',
-    description: 'Góc nhìn theo luồng nghiệp vụ / topic / service',
+    description: 'View by business flow / topic / service',
+    icon: 'bars',
     flows: businessFlows,
   },
   {
     id: 'lifecycle',
     label: 'Data Flow',
-    description: 'Góc nhìn theo vòng đời từng object',
+    description: 'View by individual object lifecycle',
+    icon: 'circles',
     flows: lifecycles,
+  },
+  {
+    id: 'vietstock',
+    label: 'Vietstock Bridge',
+    description: 'Data ingestion from Vietstock (viet-stock-bridge)',
+    icon: 'globe',
+    flows: vietstockFlows,
+    sections: vietstockSections,
   },
 ];

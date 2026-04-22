@@ -9,14 +9,15 @@ import CustomNode from './CustomNode.jsx';
 
 const nodeTypes = { custom: CustomNode };
 
-// Mỗi kind có 1 màu — edge sẽ tô theo kind của source node
-// để dễ phân biệt: edge xuất phát từ Kafka thì cam, từ Redis thì đỏ, ...
+// Each kind has a color — edges are tinted by the source node's kind
+// to make them easier to tell apart: edges from Kafka are orange, from Redis are red, etc.
 const KIND_COLOR = {
   source:   '#0ea5e9',
   service:  '#8b5cf6',
   kafka:    '#f59e0b',
   redis:    '#ef4444',
   mongo:    '#10b981',
+  mysql:    '#4f46e5',
   api:      '#06b6d4',
   ws:       '#f97316',
   client:   '#ec4899',
@@ -39,14 +40,14 @@ export default function FlowDiagram({ flow, onNodeClick, accent }) {
   const [hoverId, setHoverId] = useState(null);
   const [selectedId, setSelectedId] = useState(null);
 
-  // Map nodeId → kind để biết màu edge
+  // Map nodeId → kind so we know the edge color
   const kindByNode = useMemo(() => {
     const m = {};
     for (const n of flow.nodes) m[n.id] = n.kind;
     return m;
   }, [flow]);
 
-  // Set các id liên quan tới node được hover/select để highlight
+  // Set of ids related to the hovered/selected node — used for highlighting
   const focusId = hoverId || selectedId;
   const relatedEdgeIds = useMemo(() => {
     if (!focusId) return null;
@@ -130,7 +131,7 @@ export default function FlowDiagram({ flow, onNodeClick, accent }) {
             width: 18,
             height: 18,
           },
-          // class để CSS animate dasharray nếu cần
+          // class so CSS can animate dasharray when needed
           className: isFocused ? 'tx-edge tx-edge--focus' : 'tx-edge',
         };
       }),
@@ -189,7 +190,7 @@ export default function FlowDiagram({ flow, onNodeClick, accent }) {
         ))}
       </div>
       <div className="tx-edge-hint">
-        Hover node hoặc edge để highlight · click node để pin · click nền để bỏ pin
+        Hover a node or edge to highlight · click a node to pin · click the background to unpin
       </div>
     </div>
   );
